@@ -15,15 +15,15 @@ Cats Effect 3.6.0 introduced a new method of fiber context tracking that can be 
 <CodeGroup>
 ```scala sbt
 libraryDependencies ++= Seq(
-  "org.typelevel" %% "otel4s-oteljava" % "@VERSION@", // <1>
-  "org.typelevel" %% "otel4s-oteljava-context-storage" % "@VERSION@", // <2>
+  "org.typelevel" %% "otel4s-oteljava" % "0.15.0", // <1>
+  "org.typelevel" %% "otel4s-oteljava-context-storage" % "0.15.0", // <2>
 )
 javaOptions += "-Dcats.effect.trackFiberContext=true" // <3>
 ```
 
 ```scala scala-cli
-//> using dep "org.typelevel::otel4s-oteljava:@VERSION@" // <1>
-//> using dep "org.typelevel::otel4s-oteljava-context-storage:@VERSION@" // <2>
+//> using dep "org.typelevel::otel4s-oteljava:0.15.0" // <1>
+//> using dep "org.typelevel::otel4s-oteljava-context-storage:0.15.0" // <2>
 //> using `java-opt` "-Dcats.effect.trackFiberContext=true" // <3>
 ```
 </CodeGroup>

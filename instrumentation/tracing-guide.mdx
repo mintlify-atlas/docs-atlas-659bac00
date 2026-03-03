@@ -15,9 +15,9 @@ Currently, `otel4s` has a backend built on top of [OpenTelemetry Java](https://g
 
     ```scala
     libraryDependencies ++= Seq(
-      "org.typelevel" %% "otel4s-oteljava" % "@VERSION@", // <1>
-      "io.opentelemetry" % "opentelemetry-exporter-otlp" % "@OPEN_TELEMETRY_VERSION@" % Runtime, // <2>
-      "io.opentelemetry" % "opentelemetry-sdk-extension-autoconfigure" % "@OPEN_TELEMETRY_VERSION@" % Runtime // <3>
+      "org.typelevel" %% "otel4s-oteljava" % "0.15.0", // <1>
+      "io.opentelemetry" % "opentelemetry-exporter-otlp" % "1.59.0" % Runtime, // <2>
+      "io.opentelemetry" % "opentelemetry-sdk-extension-autoconfigure" % "1.59.0" % Runtime // <3>
     )
     javaOptions += "-Dotel.java.global-autoconfigure.enabled=true" // <4>
     ```
@@ -26,9 +26,9 @@ Currently, `otel4s` has a backend built on top of [OpenTelemetry Java](https://g
     Add directives to the `*.scala` file:
 
     ```scala
-    //> using dep "org.typelevel::otel4s-oteljava:@VERSION@" // <1>
-    //> using dep "io.opentelemetry:opentelemetry-exporter-otlp:@OPEN_TELEMETRY_VERSION@" // <2>
-    //> using dep "io.opentelemetry:opentelemetry-sdk-extension-autoconfigure:@OPEN_TELEMETRY_VERSION@" // <3>
+    //> using dep "org.typelevel::otel4s-oteljava:0.15.0" // <1>
+    //> using dep "io.opentelemetry:opentelemetry-exporter-otlp:1.59.0" // <2>
+    //> using dep "io.opentelemetry:opentelemetry-sdk-extension-autoconfigure:1.59.0" // <3>
     //> using javaOpt "-Dotel.java.global-autoconfigure.enabled=true" // <4>
     ```
   </Tab>

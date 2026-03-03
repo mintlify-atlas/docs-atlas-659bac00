@@ -83,12 +83,12 @@ Use the `otel4s-core-logs` module without depending on a specific backend:
 <Tabs>
   <Tab title="sbt">
     ```scala
-    libraryDependencies += "org.typelevel" %% "otel4s-core-logs" % "@VERSION@"
+    libraryDependencies += "org.typelevel" %% "otel4s-core-logs" % "0.15.0"
     ```
   </Tab>
   <Tab title="Scala CLI">
     ```scala
-    //> using dep "org.typelevel::otel4s-core-logs:@VERSION@"
+    //> using dep "org.typelevel::otel4s-core-logs:0.15.0"
     ```
   </Tab>
 </Tabs>
@@ -103,18 +103,18 @@ Use the full backend with exporters:
   <Tab title="sbt">
     ```scala
     libraryDependencies ++= Seq(
-      "org.typelevel" %% "otel4s-oteljava" % "@VERSION@",
-      "io.opentelemetry" % "opentelemetry-exporter-otlp" % "@OPEN_TELEMETRY_VERSION@" % Runtime,
-      "io.opentelemetry" % "opentelemetry-sdk-extension-autoconfigure" % "@OPEN_TELEMETRY_VERSION@" % Runtime
+      "org.typelevel" %% "otel4s-oteljava" % "0.15.0",
+      "io.opentelemetry" % "opentelemetry-exporter-otlp" % "1.59.0" % Runtime,
+      "io.opentelemetry" % "opentelemetry-sdk-extension-autoconfigure" % "1.59.0" % Runtime
     )
     javaOptions += "-Dotel.java.global-autoconfigure.enabled=true"
     ```
   </Tab>
   <Tab title="Scala CLI">
     ```scala
-    //> using dep "org.typelevel::otel4s-oteljava:@VERSION@"
-    //> using dep "io.opentelemetry:opentelemetry-exporter-otlp:@OPEN_TELEMETRY_VERSION@"
-    //> using dep "io.opentelemetry:opentelemetry-sdk-extension-autoconfigure:@OPEN_TELEMETRY_VERSION@"
+    //> using dep "org.typelevel::otel4s-oteljava:0.15.0"
+    //> using dep "io.opentelemetry:opentelemetry-exporter-otlp:1.59.0"
+    //> using dep "io.opentelemetry:opentelemetry-sdk-extension-autoconfigure:1.59.0"
     //> using javaOpt "-Dotel.java.global-autoconfigure.enabled=true"
     ```
   </Tab>

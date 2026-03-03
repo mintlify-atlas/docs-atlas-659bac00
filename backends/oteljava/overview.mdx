@@ -23,17 +23,17 @@ This is the recommended backend to use on the JVM.
 <CodeGroup>
 ```scala sbt
 libraryDependencies ++= Seq(
-  "org.typelevel" %% "otel4s-oteljava" % "@VERSION@", // <1>
-  "io.opentelemetry" % "opentelemetry-exporter-otlp" % "@OPEN_TELEMETRY_VERSION@" % Runtime, // <2>
-  "io.opentelemetry" % "opentelemetry-sdk-extension-autoconfigure" % "@OPEN_TELEMETRY_VERSION@" % Runtime // <3>
+  "org.typelevel" %% "otel4s-oteljava" % "0.15.0", // <1>
+  "io.opentelemetry" % "opentelemetry-exporter-otlp" % "1.59.0" % Runtime, // <2>
+  "io.opentelemetry" % "opentelemetry-sdk-extension-autoconfigure" % "1.59.0" % Runtime // <3>
 )
 javaOptions += "-Dotel.java.global-autoconfigure.enabled=true" // <4>
 ```
 
 ```scala scala-cli
-//> using lib "org.typelevel::otel4s-oteljava:@VERSION@" // <1>
-//> using lib "io.opentelemetry:opentelemetry-exporter-otlp:@OPEN_TELEMETRY_VERSION@" // <2>
-//> using lib "io.opentelemetry:opentelemetry-sdk-extension-autoconfigure:@OPEN_TELEMETRY_VERSION@" // <3>
+//> using lib "org.typelevel::otel4s-oteljava:0.15.0" // <1>
+//> using lib "io.opentelemetry:opentelemetry-exporter-otlp:1.59.0" // <2>
+//> using lib "io.opentelemetry:opentelemetry-sdk-extension-autoconfigure:1.59.0" // <3>
 //> using `java-opt` "-Dotel.java.global-autoconfigure.enabled=true" // <4>
 ```
 </CodeGroup>

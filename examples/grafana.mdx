@@ -14,9 +14,9 @@ Configure your project with the required dependencies:
 ```scala sbt
 // Add to build.sbt
 libraryDependencies ++= Seq(
-  "org.typelevel" %% "otel4s-oteljava" % "@VERSION@",
-  "io.opentelemetry" % "opentelemetry-exporter-otlp" % "@OPEN_TELEMETRY_VERSION@" % Runtime,
-  "io.opentelemetry" % "opentelemetry-sdk-extension-autoconfigure" % "@OPEN_TELEMETRY_VERSION@" % Runtime
+  "org.typelevel" %% "otel4s-oteljava" % "0.15.0",
+  "io.opentelemetry" % "opentelemetry-exporter-otlp" % "1.59.0" % Runtime,
+  "io.opentelemetry" % "opentelemetry-sdk-extension-autoconfigure" % "1.59.0" % Runtime
 )
 
 run / fork := true
@@ -28,9 +28,9 @@ javaOptions += "-Dotel.exporter.otlp.endpoint=http://localhost:4317"
 ```scala scala-cli
 // Add to grafana.scala
 //> using scala 3.3.0
-//> using dep "org.typelevel::otel4s-oteljava:@VERSION@"
-//> using dep "io.opentelemetry:opentelemetry-exporter-otlp:@OPEN_TELEMETRY_VERSION@"
-//> using dep "io.opentelemetry:opentelemetry-sdk-extension-autoconfigure:@OPEN_TELEMETRY_VERSION@"
+//> using dep "org.typelevel::otel4s-oteljava:0.15.0"
+//> using dep "io.opentelemetry:opentelemetry-exporter-otlp:1.59.0"
+//> using dep "io.opentelemetry:opentelemetry-sdk-extension-autoconfigure:1.59.0"
 //> using javaOpt "-Dotel.java.global-autoconfigure.enabled=true"
 //> using javaOpt "-Dotel.service.name=grafana-example"
 //> using javaOpt "-Dotel.exporter.otlp.endpoint=http://localhost:4317"

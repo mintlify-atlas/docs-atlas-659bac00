@@ -68,16 +68,16 @@ The otel4s API remains consistent across backends, making it straightforward to 
 <CodeGroup>
 ```scala OTel Java
 libraryDependencies ++= Seq(
-  "org.typelevel" %% "otel4s-oteljava" % "@VERSION@",
-  "io.opentelemetry" % "opentelemetry-exporter-otlp" % "@OPEN_TELEMETRY_VERSION@" % Runtime,
-  "io.opentelemetry" % "opentelemetry-sdk-extension-autoconfigure" % "@OPEN_TELEMETRY_VERSION@" % Runtime
+  "org.typelevel" %% "otel4s-oteljava" % "0.15.0",
+  "io.opentelemetry" % "opentelemetry-exporter-otlp" % "1.59.0" % Runtime,
+  "io.opentelemetry" % "opentelemetry-sdk-extension-autoconfigure" % "1.59.0" % Runtime
 )
 ```
 
 ```scala SDK
 libraryDependencies ++= Seq(
-  "org.typelevel" %% "otel4s-sdk" % "@VERSION@",
-  "org.typelevel" %% "otel4s-sdk-exporter" % "@VERSION@"
+  "org.typelevel" %% "otel4s-sdk" % "0.15.0",
+  "org.typelevel" %% "otel4s-sdk-exporter" % "0.15.0"
 )
 ```
 </CodeGroup>
