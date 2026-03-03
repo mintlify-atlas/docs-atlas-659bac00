@@ -1,0 +1,64 @@
+---
+title: Ecosystem
+description: Libraries and projects that integrate with otel4s
+---
+
+The otel4s ecosystem includes various libraries and projects that provide seamless integration with popular Scala frameworks and tools.
+
+<CardGroup cols={2}>
+  <Card
+    title="otel4s-experimental"
+    icon="flask"
+    href="https://github.com/typelevel/otel4s-experimental"
+  >
+    An experimental functionality: instrumented `cats.effect.std.Queue`, runtime metrics, `@span` annotation, and so on.
+  </Card>
+
+  <Card
+    title="otel4s-opentelemetry-java"
+    icon="java"
+    href="https://github.com/iRevive/otel4s-opentelemetry-java"
+  >
+    An experimental distribution of the OpenTelemetry Java agent that includes instrumentation for Cats Effect and otel4s.
+  </Card>
+
+  <Card
+    title="http4s-otel4s-middleware"
+    icon="network-wired"
+    href="https://github.com/http4s/http4s-otel4s-middleware"
+  >
+    [Http4s](https://github.com/http4s/http4s) middleware for seamless integration of tracing and metrics.
+  </Card>
+
+  <Card
+    title="otel4s-doobie"
+    icon="database"
+    href="https://github.com/arturaz/otel4s-doobie"
+  >
+    [Doobie](https://github.com/tpolecat/doobie) integration with Otel4s providing traces of database queries.
+  </Card>
+
+  <Card
+    title="sttp"
+    icon="arrow-right-arrow-left"
+    href="https://github.com/softwaremill/sttp"
+  >
+    sttp 4.x provides [metered](https://sttp.softwaremill.com/en/latest/backends/wrappers/opentelemetry.html#metrics-cats-effect-otel4s) and [traced](https://sttp.softwaremill.com/en/latest/backends/wrappers/opentelemetry.html#tracing-cats-effect-otel4s) backends.
+  </Card>
+
+  <Card
+    title="tapir"
+    icon="plug"
+    href="https://github.com/softwaremill/tapir"
+  >
+    Tapir supports [server traces](https://tapir.softwaremill.com/en/latest/server/observability.html#otel4s-opentelemetry-tracing) via otel4s.
+  </Card>
+
+  <Card
+    title="fs2-queues-otel4s"
+    icon="message"
+    href="https://commercetools.github.io/fs2-queues/integrations/otel4s/"
+  >
+    [fs2-queues](https://commercetools.github.io/fs2-queues/) integration with otel4s providing traces and metrics for messaging systems.
+  </Card>
+</CardGroup>

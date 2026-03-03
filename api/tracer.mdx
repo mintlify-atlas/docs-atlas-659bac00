@@ -1,0 +1,280 @@
+---
+title: Tracer
+description: API reference for the Tracer trait, the main entry point for tracing operations in otel4s
+---
+
+The `Tracer` trait is the main entry point for creating and managing spans in otel4s. It provides methods for creating spans, managing span context, and controlling trace propagation.
+
+## Type Signature
+
+```scala
+sealed trait Tracer[F[_]]
+```
+
+## Core Methods
+
+### meta
+
+```scala
+def meta: InstrumentMeta[F]
+```
+
+The instrument's metadata. Indicates whether instrumentation is enabled or not.
+
+### spanBuilder
+
+```scala
+def spanBuilder(name: String): SpanBuilder[F]
+```
+
+Creates a new `SpanBuilder` for building a fully customized span.
+
+<ParamField path="name" type="String" required>
+  The name of the span
+</ParamField>
+
+**Returns:** A `SpanBuilder[F]` for creating a span
+
+### currentSpanContext
+
+```scala
+def currentSpanContext: F[Option[SpanContext]]
+```
+
+Returns the context of the current span when a span that is not no-op exists in the local scope.
+
+**Returns:** `F[Option[SpanContext]]` - Some(SpanContext) if a non-noop span exists, None otherwise
+
+### currentSpanOrNoop
+
+```scala
+def currentSpanOrNoop: F[Span[F]]
+```
+
+Returns the current span if one exists in the local scope, or a no-op span otherwise.
+
+**Returns:** `F[Span[F]]` - The current span or a no-op span
+
+### currentSpanOrThrow
+
+```scala
+def currentSpanOrThrow: F[Span[F]]
+```
+
+Returns the current span if one exists in the local scope (even if it's a no-op span), or raises an error in `F` otherwise.
+
+**Returns:** `F[Span[F]]` - The current span
+
+**Throws:** `IllegalStateException` when called while not inside a span, indicating programmer error
+
+### withCurrentSpanOrNoop
+
+```scala
+def withCurrentSpanOrNoop[A](f: Span[F] => F[A]): F[A]
+```
+
+Applies `f` to the current span if one exists in the local scope, or a no-op span otherwise. This is a convenience for `currentSpanOrNoop.flatMap(f)`.
+
+<ParamField path="f" type="Span[F] => F[A]" required>
+  Function to apply to the current span
+</ParamField>
+
+**Returns:** `F[A]` - The result of applying `f`
+
+## Scope Management
+
+### childScope
+
+```scala
+def childScope[A](parent: SpanContext)(fa: F[A]): F[A]
+```
+
+Creates a new tracing scope with a custom parent. A newly created non-root span will be a child of the given parent.
+
+<ParamField path="parent" type="SpanContext" required>
+  The span context to use as a parent
+</ParamField>
+
+<ParamField path="fa" type="F[A]" required>
+  The effect to run within the child scope
+</ParamField>
+
+**Example:**
+
+```scala
+val tracer: Tracer[F] = ???
+val span: Span[F] = ???
+val customChild: F[A] =
+  tracer.childScope(span.context) {
+    tracer.span("custom-parent").use { span => ??? }
+  }
+```
+
+### childOrContinue
+
+```scala
+def childOrContinue[A](parent: Option[SpanContext])(fa: F[A]): F[A]
+```
+
+Creates a new tracing scope if the given parent is defined. A newly created non-root span will be a child of the given parent. If parent is None, the effect executes in the current scope.
+
+<ParamField path="parent" type="Option[SpanContext]" required>
+  Optional span context to use as a parent
+</ParamField>
+
+<ParamField path="fa" type="F[A]" required>
+  The effect to run
+</ParamField>
+
+### rootScope
+
+```scala
+def rootScope[A](fa: F[A]): F[A]
+```
+
+Creates a new root tracing scope. The parent span will not be available inside. Thus, a span created inside of the scope will be a root one.
+
+Useful when an effect needs to be executed in the background and the parent tracing info is not needed.
+
+<ParamField path="fa" type="F[A]" required>
+  The effect to run within the root scope
+</ParamField>
+
+**Example:**
+
+```scala
+val tracer: Tracer[F] = ???
+tracer.span("root-span").use { _ =>
+  for {
+    _ <- tracer.span("child-1").use(_ => ???) // a child of 'root-span'
+    _ <- tracer.rootScope {
+      tracer.span("child-2").use(_ => ???) // a root span not associated with 'root-span'
+    }
+  } yield ()
+}
+```
+
+### noopScope
+
+```scala
+def noopScope[A](fa: F[A]): F[A]
+```
+
+Creates a no-op tracing scope. The tracing operations inside of the scope are no-op.
+
+<ParamField path="fa" type="F[A]" required>
+  The effect to run within the no-op scope
+</ParamField>
+
+**Example:**
+
+```scala
+val tracer: Tracer[F] = ???
+tracer.span("root-span").use { _ =>
+  for {
+    _ <- tracer.span("child-1").use(_ => ???) // a child of 'root-span'
+    _ <- tracer.noopScope {
+      tracer.span("child-2").use(_ => ???) // 'child-2' is not created at all
+    }
+  } yield ()
+}
+```
+
+## Context Propagation
+
+### joinOrRoot
+
+```scala
+def joinOrRoot[A, C: TextMapGetter](carrier: C)(fa: F[A]): F[A]
+```
+
+Creates a new tracing scope if a parent can be extracted from the given carrier. A newly created non-root span will be a child of the extracted parent.
+
+If the context cannot be extracted from the carrier, the given effect `fa` will be executed within the root span.
+
+<ParamField path="carrier" type="C" required>
+  The carrier to extract the context from (e.g., HTTP headers)
+</ParamField>
+
+<ParamField path="fa" type="F[A]" required>
+  The effect to run
+</ParamField>
+
+**Example - W3C headers:**
+
+```scala
+val w3cHeaders: Map[String, String] =
+  Map("traceparent" -> "00-80f198ee56343ba864fe8b2a57d3eff7-e457b5a2e4d86bd1-01")
+
+Tracer[F].joinOrRoot(w3cHeaders) {
+  Tracer[F].span("child").use { span => ??? } // a child of the external span
+}
+```
+
+**Example - Fallback to root:**
+
+```scala
+Tracer[F].span("process").surround {
+  Tracer[F].joinOrRoot(Map.empty) { // cannot extract context from empty map
+    Tracer[F].span("child").use { span => ??? } // a child of the new root span
+  }
+}
+```
+
+### propagate
+
+```scala
+def propagate[C: TextMapUpdater](carrier: C): F[C]
+```
+
+Propagates this tracer's context into an immutable carrier.
+
+<ParamField path="carrier" type="C" required>
+  The immutable carrier to append the context to
+</ParamField>
+
+**Returns:** `F[C]` - A copy of the immutable carrier with this tracer's context appended to it
+
+## Transformation
+
+### liftTo
+
+```scala
+def liftTo[G[_]: MonadCancelThrow](implicit
+    F: MonadCancelThrow[F],
+    kt: KindTransformer[F, G]
+): Tracer[G]
+```
+
+Modifies the context `F` using an implicit `KindTransformer` from `F` to `G`.
+
+<ParamField path="G" type="Type Parameter" required>
+  The target effect type
+</ParamField>
+
+**Returns:** `Tracer[G]` - A tracer with the transformed effect type
+
+## Creating a Tracer
+
+### No-op Tracer
+
+```scala
+import Tracer.Implicits.noop
+```
+
+Creates a no-op implementation where all tracing operations are no-op.
+
+### From TracerProvider
+
+```scala
+val tracerProvider: TracerProvider[IO] = ???
+tracerProvider
+  .get("com.service.runtime")
+  .flatMap { implicit tracer: Tracer[IO] => ??? }
+```
+
+## See Also
+
+- [Span](/api/span) - Individual span operations
+- [SpanBuilder](/api/span-builder) - Building customized spans
+- [Context](/api/context) - Context management

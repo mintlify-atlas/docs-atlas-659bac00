@@ -1,0 +1,359 @@
+---
+title: Context
+description: API reference for Context management in otel4s, including context propagation and local state
+---
+
+The context API in otel4s provides mechanisms for managing contextual information across async boundaries, including trace context, baggage, and custom values.
+
+## Contextual
+
+The `Contextual[C]` trait defines operations for working with context values.
+
+### Type Signature
+
+```scala
+sealed trait Contextual[C]
+```
+
+### Type Members
+
+```scala
+type Key[A] <: context.Key[A]
+```
+
+The type of `Key` used by contexts of type `C`.
+
+### Core Methods
+
+#### get
+
+```scala
+def get[A](ctx: C)(key: Key[A]): Option[A]
+```
+
+Retrieves the value associated with the given key from the context.
+
+<ParamField path="ctx" type="C" required>
+  The context to retrieve from
+</ParamField>
+
+<ParamField path="key" type="Key[A]" required>
+  The key to look up
+</ParamField>
+
+**Returns:** `Option[A]` - Some(value) if found, None otherwise
+
+#### getOrElse
+
+```scala
+def getOrElse[A](ctx: C)(key: Key[A], default: => A): A
+```
+
+Retrieves the value associated with the given key, or returns the default value if not found.
+
+<ParamField path="ctx" type="C" required>
+  The context to retrieve from
+</ParamField>
+
+<ParamField path="key" type="Key[A]" required>
+  The key to look up
+</ParamField>
+
+<ParamField path="default" type="=> A" required>
+  The default value to return if the key is not found
+</ParamField>
+
+**Returns:** `A` - The value associated with the key, or the default
+
+#### updated
+
+```scala
+def updated[A](ctx: C)(key: Key[A], value: A): C
+```
+
+Creates a copy of the context with the given value associated with the given key.
+
+<ParamField path="ctx" type="C" required>
+  The context to update
+</ParamField>
+
+<ParamField path="key" type="Key[A]" required>
+  The key to associate the value with
+</ParamField>
+
+<ParamField path="value" type="A" required>
+  The value to store
+</ParamField>
+
+**Returns:** `C` - A new context with the updated value
+
+#### root
+
+```scala
+def root: C
+```
+
+The root context, from which all other contexts are derived.
+
+### Syntax Extensions
+
+The `ContextSyntax` class provides convenient syntax for working with contexts:
+
+```scala
+import org.typelevel.otel4s.context.syntax._
+
+val ctx: C = ???
+val key: Key[String] = ???
+
+// Get a value
+val maybeValue: Option[String] = ctx.get(key)
+
+// Get with default
+val value: String = ctx.getOrElse(key, "default")
+
+// Update context
+val newCtx: C = ctx.updated(key, "new value")
+```
+
+### Summoning Contextual
+
+```scala
+Contextual.apply[C](implicit c: Contextual[C]): Contextual[C]
+```
+
+Summons an implicit `Contextual` instance.
+
+**Example:**
+
+```scala
+val contextual = Contextual[MyContext]
+```
+
+## Key
+
+A `Key[A]` represents a typed key for storing and retrieving values in a context.
+
+### Type Signature
+
+```scala
+sealed trait Key[A] {
+  val name: String
+}
+```
+
+### Properties
+
+<ParamField path="name" type="String">
+  The debug name of the key
+</ParamField>
+
+### Key.Provider
+
+Provides a way to create unique context keys.
+
+```scala
+sealed trait Provider[F[_], K[X] <: Key[X]] {
+  def uniqueKey[A](name: String): F[K[A]]
+}
+```
+
+#### uniqueKey
+
+```scala
+def uniqueKey[A](name: String): F[K[A]]
+```
+
+Creates a unique key with the given debug name.
+
+<ParamField path="name" type="String" required>
+  The debug name for the key
+</ParamField>
+
+**Returns:** `F[K[A]]` - A new unique key
+
+**Note:** Different key instances are always treated as non-equal, even if they have the same name.
+
+## LocalProvider
+
+The `LocalProvider[F, Ctx]` trait provides a way to create `cats.mtl.Local` instances for managing context in effect types.
+
+### Type Signature
+
+```scala
+sealed trait LocalProvider[F[_], Ctx] {
+  def local: F[Local[F, Ctx]]
+}
+```
+
+### Creating LocalProvider
+
+#### fromIOLocal
+
+```scala
+LocalProvider.fromIOLocal[F, Ctx](ioLocal: IOLocal[Ctx]): LocalProvider[F, Ctx]
+```
+
+Creates a `LocalProvider` that derives a `Local` instance from an `IOLocal`.
+
+<ParamField path="ioLocal" type="IOLocal[Ctx]" required>
+  The IOLocal to use for context storage
+</ParamField>
+
+**Example:**
+
+```scala
+import cats.effect.IOLocal
+import cats.effect.IO
+
+IOLocal(Context.root).map { implicit ioLocal =>
+  val provider = LocalProvider[IO, Context]
+}
+```
+
+#### fromLocal
+
+```scala
+LocalProvider.fromLocal[F, Ctx](l: Local[F, Ctx]): LocalProvider[F, Ctx]
+```
+
+Creates a `LocalProvider` that returns the given `Local` instance.
+
+<ParamField path="l" type="Local[F, Ctx]" required>
+  The Local instance to use
+</ParamField>
+
+**Example:**
+
+```scala
+implicit val local: Local[F, Context] = ???
+val provider = LocalProvider[F, Context]
+```
+
+#### fromLiftIO
+
+```scala
+LocalProvider.fromLiftIO[F, Ctx]: LocalProvider[F, Ctx]
+```
+
+Creates a `LocalProvider` that creates a new `IOLocal` under the hood.
+
+**Note:** Every invocation of `local` creates a new `IOLocal`. If you want to share an `IOLocal` with other components, use `fromIOLocal`.
+
+**Example:**
+
+```scala
+implicit val liftIO: LiftIO[F] = ???
+implicit val contextual: Contextual[Context] = ???
+
+val provider = LocalProvider.fromLiftIO[F, Context]
+```
+
+### Implicit Resolution
+
+The `LocalProvider` companion object provides several implicit instances:
+
+1. **From IOLocal:** If an implicit `IOLocal[Ctx]` is available
+2. **From Local:** If an implicit `Local[F, Ctx]` is available
+3. **From LiftIO:** If `LiftIO[F]` and `Contextual[Ctx]` are available
+
+**Example:**
+
+```scala
+import cats.effect.{IO, IOLocal}
+
+// Automatically derives LocalProvider from IOLocal
+IOLocal(Context.root).flatMap { implicit ioLocal =>
+  // LocalProvider[IO, Context] is available implicitly
+  val provider = LocalProvider[IO, Context]
+  ???
+}
+```
+
+## Context Propagation
+
+Context propagation is handled through the `TextMapGetter`, `TextMapUpdater`, and `TextMapPropagator` traits.
+
+### TextMapGetter
+
+Extracts context from a carrier (e.g., HTTP headers).
+
+```scala
+trait TextMapGetter[A] {
+  def get(carrier: A, key: String): Option[String]
+  def keys(carrier: A): Iterable[String]
+}
+```
+
+### TextMapUpdater
+
+Injects context into a carrier.
+
+```scala
+trait TextMapUpdater[A] {
+  def updated(carrier: A, key: String, value: String): A
+}
+```
+
+### Usage with Tracer
+
+The context propagation is typically used with `Tracer`:
+
+```scala
+// Extract context from headers and create child span
+val headers: Map[String, String] = ???
+tracer.joinOrRoot(headers) {
+  tracer.span("operation").use { span =>
+    // This span is a child of the span from the headers
+    ???
+  }
+}
+
+// Inject context into headers
+val carrier: Map[String, String] = Map.empty
+tracer.propagate(carrier).flatMap { headersWithContext =>
+  // headersWithContext contains trace propagation headers
+  ???
+}
+```
+
+## Complete Example
+
+```scala
+import cats.effect.{IO, IOLocal}
+import cats.mtl.Local
+import org.typelevel.otel4s.context._
+
+case class MyContext(values: Map[String, String])
+
+object MyContext {
+  implicit val contextual: Contextual[MyContext] = new Contextual[MyContext] {
+    type Key[A] = String
+    
+    def get[A](ctx: MyContext)(key: String): Option[A] =
+      ctx.values.get(key).asInstanceOf[Option[A]]
+    
+    def updated[A](ctx: MyContext)(key: String, value: A): MyContext =
+      MyContext(ctx.values.updated(key, value.toString))
+    
+    def root: MyContext = MyContext(Map.empty)
+  }
+}
+
+for {
+  ioLocal <- IOLocal(MyContext.root)
+  provider = LocalProvider.fromIOLocal[IO, MyContext](ioLocal)
+  local <- provider.local
+  
+  // Use the local context
+  _ <- local.scope(MyContext(Map("key" -> "value"))) {
+    local.ask[MyContext].flatMap { ctx =>
+      IO.println(s"Context: $ctx")
+    }
+  }
+} yield ()
+```
+
+## See Also
+
+- [Tracer](/api/tracer) - Using context with tracing
+- [Context Propagation](/tracing/context-propagation) - Propagating context across services

@@ -1,0 +1,302 @@
+---
+title: Java Interoperability
+description: Integrate otel4s with Java-instrumented libraries and OpenTelemetry Java SDK
+---
+
+OpenTelemetry Java SDK and otel4s use different context management approaches. This guide shows how to bridge between them for seamless interoperability.
+
+## The Problem
+
+OpenTelemetry Java SDK and otel4s rely on different context manipulation approaches:
+
+- **Java SDK** uses ThreadLocal variables
+- **otel4s** uses [Local](https://typelevel.org/cats-mtl/mtl-classes/local.html) from Cats MTL
+
+Here's an example that demonstrates the issue:
+
+```scala
+import cats.effect.IO
+import org.typelevel.otel4s.trace.Tracer
+import io.opentelemetry.api.trace.{Span => JSpan}
+
+def test(implicit tracer: Tracer[IO]): IO[Unit] =
+  tracer.span("test").use { span => // start 'test' span using otel4s
+    val jSpanContext = JSpan.current().getSpanContext // get span from ThreadLocal
+    IO.println(s"Java ctx: $jSpanContext") >> 
+    IO.println(s"Otel4s ctx: ${span.context}")
+  }
+```
+
+Output:
+```
+Java ctx: {traceId=00000000000000000000000000000000, spanId=0000000000000000, ...}
+Otel4s ctx: {traceId=318854a5bd6ac0dd7b0a926f89c97ecb, spanId=925ad3a126cec272, ...}
+```
+
+The contexts are out of sync because otel4s context isn't visible to the Java SDK.
+
+## Terminology
+
+| Name | Description |
+|------|-------------|
+| **Context** | otel4s context that carries tracing information |
+| **Local[F, Context]** | The context carrier tool within the effect environment |
+| **Java SDK** | The OpenTelemetry library for Java |
+| **JContext** | Alias for `io.opentelemetry.context.Context` |
+| **JSpan** | Alias for `io.opentelemetry.api.trace.Span` |
+
+## Setup
+
+To manually modify context, you need direct access to `Local[F, Context]`. Here's how to construct it:
+
+```scala
+import cats.effect._
+import cats.mtl.Local
+import org.typelevel.otel4s.oteljava.context.Context
+import org.typelevel.otel4s.oteljava.OtelJava
+
+def program[F[_]: Async](
+  otel4s: OtelJava[F]
+)(implicit L: Local[F, Context]): F[Unit] = {
+  val _ = (otel4s, L) // both OtelJava and Local[F, Context] are available
+  Async[F].unit
+}
+
+val run: IO[Unit] =
+  OtelJava.global[IO].flatMap { otel4s =>
+    import otel4s.localContext
+    program(otel4s)
+  }
+```
+
+## Using Java SDK Context with otel4s
+
+When you need to run an effect with an explicit Java SDK context (e.g., materializing an effect inside a Pekko HTTP request handler), use this utility:
+
+```scala
+import cats.mtl.Local
+import org.typelevel.otel4s.oteljava.context.Context
+import io.opentelemetry.context.{Context => JContext}
+
+def withJContext[F[_], A](
+  ctx: JContext
+)(fa: F[A])(
+  implicit L: Local[F, Context]
+): F[A] =
+  Local[F, Context].scope(fa)(Context.wrap(ctx))
+```
+
+How it works:
+1. `Context.wrap(ctx)` - Creates otel4s context from `JContext`
+2. `Local[F, Context].scope` - Sets the given context as active for the effect `fa`
+
+### Example: Pekko HTTP Integration
+
+```scala
+import cats.effect.{Async, IO}
+import cats.effect.std.Random
+import cats.effect.syntax.temporal._
+import cats.effect.unsafe.implicits.global
+import cats.mtl.Local
+import cats.syntax.all._
+import org.apache.pekko.http.scaladsl.model.StatusCodes.OK
+import org.apache.pekko.http.scaladsl.server.Directives._
+import org.apache.pekko.http.scaladsl.server.Route
+import org.typelevel.otel4s.Attribute
+import org.typelevel.otel4s.trace.Tracer
+import org.typelevel.otel4s.oteljava.context.Context
+import io.opentelemetry.instrumentation.annotations.WithSpan
+import io.opentelemetry.context.{Context => JContext}
+import scala.concurrent.duration._
+
+def route(implicit T: Tracer[IO], L: Local[IO, Context]): Route = 
+  path("gen-random-name") {
+    get {
+      complete {
+        OK -> generateRandomName(length = 10)
+      }
+    }
+  }
+
+@WithSpan("generate-random-name")
+def generateRandomName(
+  length: Int
+)(implicit T: Tracer[IO], L: Local[IO, Context]): String =
+  withJContext(JContext.current())(generate[IO](length)).unsafeRunSync()
+
+def generate[F[_]: Async: Tracer](length: Int): F[String] =
+  Tracer[F].span("generate", Attribute("length", length.toLong)).surround {
+    for {
+      random <- Random.scalaUtilRandom[F]
+      delay  <- random.betweenInt(100, 2000)
+      chars  <- random.nextAlphaNumeric.replicateA(length).delayBy(delay.millis)
+    } yield chars.mkString
+  }
+
+def withJContext[F[_], A](
+  ctx: JContext
+)(fa: F[A])(
+  implicit L: Local[F, Context]
+): F[A] =
+  Local[F, Context].scope(fa)(Context.wrap(ctx))
+```
+
+When you invoke the `gen-random-name` endpoint, the spans will be structured correctly:
+
+```
+> GET { http.method = GET, http.target = /gen-random-name, ... }
+  > generate-random-name 
+    > generate { length = 10 } 
+```
+
+## Using otel4s Context with Java SDK
+
+To interoperate with Java libraries that rely on Java SDK context, activate the context manually:
+
+```scala
+import cats.effect.Sync
+import cats.mtl.Local
+import cats.syntax.flatMap._
+import org.typelevel.otel4s.oteljava.context.Context
+import io.opentelemetry.context.{Context => JContext}
+
+def useJContext[F[_]: Sync, A](
+  use: JContext => A
+)(implicit L: Local[F, Context]): F[A] = 
+  Local[F, Context].ask.flatMap { ctx => // <1>
+    Sync[F].delay {
+      val jContext: JContext = ctx.underlying // <2>
+      val scope = jContext.makeCurrent() // <3>
+      try {
+        use(jContext)
+      } finally {
+        scope.close()
+      }
+    }
+  }
+```
+
+1. `Local[F, Context].ask` - Get the current otel4s context
+2. `ctx.underlying` - Unwrap otel4s context to get `JContext`
+3. `jContext.makeCurrent()` - Activate `JContext` within the current thread
+
+<Note>
+Depending on your use case, you may prefer `Sync[F].interruptible` or `Sync[F].blocking` instead of `Sync[F].delay`.
+</Note>
+
+### Example: Synchronized Contexts
+
+```scala
+import io.opentelemetry.api.trace.{Span => JSpan}
+
+tracer.span("test").use { span => // start 'test' span using otel4s
+  IO.println(s"Otel4s ctx: ${span.context}") >> useJContext[IO, Unit] { _ =>
+    val jSpanContext = JSpan.current().getSpanContext
+    println(s"Java ctx: $jSpanContext") 
+  }
+}
+```
+
+Output:
+```
+Otel4s ctx: {traceId=06f5d9112efbe711947ebbded1287a30, spanId=26ed80c398cc039f, ...}
+Java ctx: {traceId=06f5d9112efbe711947ebbded1287a30, spanId=26ed80c398cc039f, ...}
+```
+
+Now the tracing information is synchronized, and you can use Java-instrumented libraries within the `useJContext` block.
+
+## Common Integration Patterns
+
+### Pattern 1: HTTP Client Calls
+
+```scala
+import org.http4s.client.Client
+import org.typelevel.otel4s.trace.Tracer
+
+def makeRequest[F[_]: Async: Tracer](
+  client: Client[F],
+  uri: String
+): F[String] =
+  Tracer[F].span("http-request").use { _ =>
+    // Context automatically propagates to the HTTP client
+    client.expect[String](uri)
+  }
+```
+
+### Pattern 2: Database Operations
+
+```scala
+import doobie._
+import doobie.implicits._
+import org.typelevel.otel4s.trace.Tracer
+
+def queryUser[F[_]: Async: Tracer](
+  userId: Long
+)(implicit xa: Transactor[F]): F[Option[User]] =
+  Tracer[F].span("db-query", Attribute("user.id", userId)).surround {
+    sql"SELECT * FROM users WHERE id = $userId"
+      .query[User]
+      .option
+      .transact(xa)
+  }
+```
+
+### Pattern 3: Message Processing
+
+```scala
+import cats.effect.IO
+import org.typelevel.otel4s.trace.Tracer
+import io.opentelemetry.context.{Context => JContext}
+
+def processMessage(
+  message: Message,
+  jContext: JContext
+)(implicit tracer: Tracer[IO], L: Local[IO, Context]): IO[Unit] =
+  withJContext(jContext) {
+    tracer.span("process-message").use { _ =>
+      // Process message with proper context propagation
+      IO.println(s"Processing: ${message.body}")
+    }
+  }
+```
+
+## Complete Example
+
+See [PekkoHttpExample](https://github.com/typelevel/otel4s/blob/main/examples/src/main/scala/PekkoHttpExample.scala) for a complete working example that demonstrates otel4s with OpenTelemetry Java SDK instrumented libraries.
+
+## Context API Reference
+
+### Context Operations
+
+```scala
+sealed trait Context {
+  def underlying: JContext
+  def get[A](key: Context.Key[A]): Option[A]
+  def getOrElse[A](key: Context.Key[A], default: => A): A
+  def updated[A](key: Context.Key[A], value: A): Context
+}
+```
+
+### Context Wrapping
+
+```scala
+// Wrap Java context
+val ctx: Context = Context.wrap(jContext)
+
+// Access underlying Java context
+val jContext: JContext = ctx.underlying
+
+// Root context
+val root: Context = Context.root
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Context Propagation" icon="shuffle" href="context-propagation">
+    Learn about automatic context propagation
+  </Card>
+  <Card title="Java Agent" icon="robot" href="agent">
+    Use zero-code instrumentation
+  </Card>
+</CardGroup>

@@ -1,0 +1,227 @@
+---
+title: Observable Instruments
+description: Asynchronous instruments that observe values via callbacks
+---
+
+Observable instruments are asynchronous instruments that collect measurements through callbacks rather than direct recording. They are useful for observing values that are computed or retrieved from external sources.
+
+## Observable Instrument Types
+
+otel4s provides three types of observable instruments:
+
+- **ObservableCounter** - monotonic, for values that only increase
+- **ObservableUpDownCounter** - non-monotonic, for values that can increase or decrease
+- **ObservableGauge** - for non-additive snapshot values
+
+## ObservableCounter
+
+A monotonic observable counter that records increasing values.
+
+### Type Signature
+
+```scala
+trait ObservableCounter
+```
+
+### Creating an ObservableCounter
+
+```scala
+val meter: Meter[IO] = ???
+
+val observableCounter: Resource[IO, ObservableCounter] =
+  meter.observableCounter[Long]("process.cpu.time")
+    .withUnit("ms")
+    .withDescription("Total CPU time")
+    .create(Sync[IO].delay {
+      List(Measurement(getCpuTime()))
+    })
+```
+
+## ObservableUpDownCounter
+
+A non-monotonic observable counter for values that can increase or decrease.
+
+### Type Signature
+
+```scala
+trait ObservableUpDownCounter
+```
+
+### Creating an ObservableUpDownCounter
+
+```scala
+val meter: Meter[IO] = ???
+
+val observableUpDownCounter: Resource[IO, ObservableUpDownCounter] =
+  meter.observableUpDownCounter[Long]("process.memory.usage")
+    .withUnit("bytes")
+    .withDescription("Current memory usage")
+    .create(Sync[IO].delay {
+      List(Measurement(getMemoryUsage()))
+    })
+```
+
+## ObservableGauge
+
+An observable gauge for non-additive values.
+
+### Type Signature
+
+```scala
+trait ObservableGauge
+```
+
+### Creating an ObservableGauge
+
+```scala
+val meter: Meter[IO] = ???
+
+val observableGauge: Resource[IO, ObservableGauge] =
+  meter.observableGauge[Double]("system.cpu.utilization")
+    .withUnit("%")
+    .withDescription("CPU utilization")
+    .create(Sync[IO].delay {
+      List(Measurement(getCpuUtilization()))
+    })
+```
+
+## Builder Methods
+
+All observable instruments share the same builder methods:
+
+### withUnit
+
+Sets the unit of measure for this instrument.
+
+<ParamField path="unit" type="String" required>
+  The measurement unit. Must be 63 or fewer ASCII characters.
+</ParamField>
+
+**Returns:** `Builder[F, A]`
+
+**Reference:** [Instrument Unit](https://github.com/open-telemetry/opentelemetry-specification/blob/main/specification/metrics/api.md#instrument-unit)
+
+### withDescription
+
+Sets the description for this instrument.
+
+<ParamField path="description" type="String" required>
+  The description of the instrument.
+</ParamField>
+
+**Returns:** `Builder[F, A]`
+
+**Reference:** [Instrument Description](https://github.com/open-telemetry/opentelemetry-specification/blob/main/specification/metrics/api.md#instrument-description)
+
+### createWithCallback
+
+Creates an instrument with the given callback.
+
+<ParamField path="cb" type="ObservableMeasurement[F, A] => F[Unit]" required>
+  The callback which observes measurements when invoked.
+</ParamField>
+
+**Returns:** `Resource[F, Observable*]` (where `*` is Counter, UpDownCounter, or Gauge)
+
+The callback must be:
+- Short-living and (ideally) non-blocking
+- Able to run in a finite amount of time
+- Safe to call repeatedly, across multiple threads
+
+**Example:**
+```scala
+meter.observableCounter[Long]("active.users")
+  .createWithCallback { measurement =>
+    Sync[IO].delay {
+      val count = activeUserCount()
+      measurement.record(
+        count,
+        Attribute(AttributeKey.string("region"), "us-west")
+      )
+    }
+  }
+```
+
+### create
+
+Creates an asynchronous instrument based on an effect that produces measurements.
+
+<ParamField path="measurements" type="F[Iterable[Measurement[A]]]" required>
+  Effect that produces a number of measurements.
+</ParamField>
+
+**Returns:** `Resource[F, Observable*]` (where `*` is Counter, UpDownCounter, or Gauge)
+
+The measurement effect must be:
+- Short-living and (ideally) non-blocking
+- Able to run in a finite amount of time
+- Safe to call repeatedly, across multiple threads
+
+**Example:**
+```scala
+meter.observableGauge[Double]("cache.hit.ratio")
+  .create(
+    Sync[IO].delay {
+      List(
+        Measurement(
+          calculateHitRatio(),
+          Attributes(Attribute(AttributeKey.string("cache"), "main"))
+        )
+      )
+    }
+  )
+```
+
+### createObserver
+
+Creates an observer for use with batch callbacks.
+
+**Returns:** `F[ObservableMeasurement[F, A]]`
+
+The observer must be registered via `Meter.batchCallback`. Values observed outside registered callbacks are ignored.
+
+**Example:**
+```scala
+val meter: Meter[IO] = ???
+
+val background: Resource[IO, Unit] =
+  meter.batchCallback.of(
+    meter.observableCounter[Long]("counter").createObserver,
+    meter.observableGauge[Double]("gauge").createObserver
+  ) { (counter, gauge) =>
+    counter.record(1L) *>
+    gauge.record(3.0)
+  }
+```
+
+## ObservableMeasurement
+
+The `ObservableMeasurement` trait is used within callbacks to record measurements.
+
+### Type Signature
+
+```scala
+trait ObservableMeasurement[F[_], A]
+```
+
+### record
+
+Records a value with attributes.
+
+<ParamField path="value" type="A" required>
+  The value to record.
+</ParamField>
+
+<ParamField path="attributes" type="Attribute[_]* or Attributes" required>
+  The set of attributes to associate with the value.
+</ParamField>
+
+**Returns:** `F[Unit]`
+
+**Example:**
+```scala
+measurement.record(
+  42L,
+  Attribute(AttributeKey.string("key"), "value")
+)
+```

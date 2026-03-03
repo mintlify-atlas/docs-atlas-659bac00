@@ -1,0 +1,148 @@
+---
+title: OTel Java Backend - Overview
+description: Learn how to use the otel4s-oteljava backend implementation powered by OpenTelemetry Java SDK
+---
+
+The `otel4s-oteljava` modules provide implementation of the otel4s API interfaces using [OpenTelemetry Java](https://opentelemetry.io/docs/languages/java/intro/) under the hood.
+
+## Why OTel Java?
+
+There are several advantages of using the `otel4s-oteljava` backend:
+
+- **Low memory overhead** - Leverages the battle-tested Java SDK implementation
+- **Extensive instrumentation ecosystem** - Access to the rich [Java instrumentation libraries](https://opentelemetry.io/docs/languages/java/instrumentation/)
+- **Easy integration with Java libraries** - Seamless interoperability with Java-based systems
+- **Well-tested implementation** - Benefits from the maturity of the upstream project
+
+<Note>
+This is the recommended backend to use on the JVM.
+</Note>
+
+## Installation
+
+<CodeGroup>
+```scala sbt
+libraryDependencies ++= Seq(
+  "org.typelevel" %% "otel4s-oteljava" % "@VERSION@", // <1>
+  "io.opentelemetry" % "opentelemetry-exporter-otlp" % "@OPEN_TELEMETRY_VERSION@" % Runtime, // <2>
+  "io.opentelemetry" % "opentelemetry-sdk-extension-autoconfigure" % "@OPEN_TELEMETRY_VERSION@" % Runtime // <3>
+)
+javaOptions += "-Dotel.java.global-autoconfigure.enabled=true" // <4>
+```
+
+```scala scala-cli
+//> using lib "org.typelevel::otel4s-oteljava:@VERSION@" // <1>
+//> using lib "io.opentelemetry:opentelemetry-exporter-otlp:@OPEN_TELEMETRY_VERSION@" // <2>
+//> using lib "io.opentelemetry:opentelemetry-sdk-extension-autoconfigure:@OPEN_TELEMETRY_VERSION@" // <3>
+//> using `java-opt` "-Dotel.java.global-autoconfigure.enabled=true" // <4>
+```
+</CodeGroup>
+
+1. Add the `otel4s-oteljava` library
+2. Add an OpenTelemetry exporter. Without the exporter, the application will crash
+3. Add an OpenTelemetry autoconfigure extension
+4. Enable OpenTelemetry SDK [autoconfigure mode](https://opentelemetry.io/docs/languages/java/configuration/#zero-code-sdk-autoconfigure)
+
+## Creating an Autoconfigured Instance
+
+You can use `OtelJava.autoConfigured` to autoconfigure the SDK:
+
+```scala
+import cats.effect.{IO, IOApp}
+import org.typelevel.otel4s.oteljava.OtelJava
+import org.typelevel.otel4s.metrics.MeterProvider
+import org.typelevel.otel4s.trace.TracerProvider
+
+object TelemetryApp extends IOApp.Simple {
+
+  def run: IO[Unit] =
+    OtelJava.autoConfigured[IO]().use { otel4s =>
+      program(otel4s.meterProvider, otel4s.tracerProvider)
+    }
+
+  def program(
+      meterProvider: MeterProvider[IO], 
+      tracerProvider: TracerProvider[IO]
+  ): IO[Unit] =
+    ???
+}
+```
+
+The `OtelJava.autoConfigured(...)` relies on environment variables and system properties to configure the SDK. For example, use `export OTEL_SERVICE_NAME=auth-service` to configure the name of the service.
+
+See the full set of [supported configuration options](configuration).
+
+<Warning>
+`OtelJava.autoConfigured` creates an **isolated** **non-global** instance. If you create multiple instances, those instances won't interoperate (i.e. be able to see each other's spans).
+</Warning>
+
+## Accessing the Global Instance
+
+There are several reasons to use the global instance:
+
+- You are using the [Java Agent](agent)
+- You must reuse the global instance to interoperate with Java libraries
+- You have no control over the entry point
+
+In such cases, you can use `OtelJava.global` to use the global OpenTelemetry instance:
+
+```scala
+import cats.effect.{IO, IOApp}
+import org.typelevel.otel4s.oteljava.OtelJava
+import org.typelevel.otel4s.metrics.MeterProvider
+import org.typelevel.otel4s.trace.TracerProvider
+
+object TelemetryApp extends IOApp.Simple {
+
+  def run: IO[Unit] =
+    OtelJava.global[IO].flatMap { otel4s =>
+      program(otel4s.meterProvider, otel4s.tracerProvider)
+    }
+
+  def program(
+      meterProvider: MeterProvider[IO], 
+      tracerProvider: TracerProvider[IO]
+  ): IO[Unit] =
+    ???
+}
+```
+
+## API Reference
+
+The `OtelJava` class provides access to all telemetry providers:
+
+```scala
+final class OtelJava[F[_]] private (
+    val underlying: JOpenTelemetry,
+    val propagators: ContextPropagators[Context],
+    val meterProvider: MeterProvider[F],
+    val tracerProvider: TracerProvider[F],
+    val loggerProvider: LoggerProvider[F, Context],
+)(implicit val localContext: LocalContext[F])
+```
+
+### Factory Methods
+
+| Method | Description |
+|--------|-------------|
+| `autoConfigured[F[_]]()` | Creates an autoconfigured instance from environment variables |
+| `global[F[_]]` | Accesses the global OpenTelemetry instance |
+| `fromJOpenTelemetry[F[_]](JOpenTelemetry)` | Creates an instance from a Java OpenTelemetry instance |
+| `noop[F[_]]` | Creates a no-op implementation |
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Configuration" icon="gear" href="configuration">
+    Learn how to configure the SDK using environment variables
+  </Card>
+  <Card title="Context Propagation" icon="shuffle" href="context-propagation">
+    Understand how context propagation works with Cats Effect
+  </Card>
+  <Card title="Java Interop" icon="plug" href="java-interop">
+    Integrate with Java-instrumented libraries
+  </Card>
+  <Card title="Java Agent" icon="robot" href="agent">
+    Use zero-code instrumentation with the Java Agent
+  </Card>
+</CardGroup>

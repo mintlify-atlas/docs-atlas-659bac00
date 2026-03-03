@@ -1,0 +1,409 @@
+---
+title: Logs
+description: Bridge existing logging frameworks into OpenTelemetry with structured log records
+---
+
+The otel4s logs module enables **library authors** to bridge logs from existing logging frameworks into OpenTelemetry. It is designed for integration, not as a replacement for application logging libraries.
+
+<Warning>
+  The logging module is meant for **library authors** who want to **bridge logs** from an existing logging API into OpenTelemetry, not for application developers to replace their logging library. It is **not a replacement** for a full logging API.
+</Warning>
+
+## Overview
+
+The API mirrors the [OpenTelemetry Logs specification](https://opentelemetry.io/docs/specs/otel/logs/api/) and focuses on structured, context-aware log records that flow into the same OpenTelemetry pipeline as traces and metrics.
+
+### When to Use This Module
+
+Use the logs module when:
+- Your library relies on a logging facade or implementation
+- You want log events to flow into the OpenTelemetry pipeline
+- You need to correlate logs with traces and metrics
+- You want to export logs through OTLP
+
+### What This Module Does NOT Do
+
+The logs module does **not**:
+- Format console output
+- Rotate log files
+- Manage log levels of specific loggers
+- Manage appenders
+- Replace your logging framework
+
+## Core Concepts
+
+There are three main interfaces:
+
+### LoggerProvider
+
+Factory for creating `Logger` instances. Usually created during startup by the backend (`otel4s-oteljava` or `otel4s-sdk`).
+
+```scala
+trait LoggerProvider[F[_], Ctx] {
+  def get(name: String): LoggerBuilder[F, Ctx]
+  def logger(name: String): LoggerBuilder[F, Ctx]
+}
+```
+
+### Logger
+
+Provides `logRecordBuilder` to create new log records:
+
+```scala
+trait Logger[F[_], Ctx] {
+  def meta: InstrumentMeta[F, Ctx]
+  def logRecordBuilder: LogRecordBuilder[F, Ctx]
+}
+```
+
+### LogRecordBuilder
+
+Builder for setting timestamps, severity, attributes, body, and context, then emitting the record:
+
+```scala
+trait LogRecordBuilder[F[_], Ctx] {
+  def withTimestamp(timestamp: FiniteDuration): LogRecordBuilder[F, Ctx]
+  def withObservedTimestamp(timestamp: FiniteDuration): LogRecordBuilder[F, Ctx]
+  def withSeverity(severity: Severity): LogRecordBuilder[F, Ctx]
+  def withSeverityText(text: String): LogRecordBuilder[F, Ctx]
+  def withBody(body: AnyValue): LogRecordBuilder[F, Ctx]
+  def addAttribute[A](attribute: Attribute[A]): LogRecordBuilder[F, Ctx]
+  def addAttributes(attributes: Attribute[_]*): LogRecordBuilder[F, Ctx]
+  def withContext(context: Ctx): LogRecordBuilder[F, Ctx]
+  def emit: F[Unit]
+}
+```
+
+## Installation
+
+### For Library Authors
+
+Use the `otel4s-core-logs` module without depending on a specific backend:
+
+<Tabs>
+  <Tab title="sbt">
+    ```scala
+    libraryDependencies += "org.typelevel" %% "otel4s-core-logs" % "@VERSION@"
+    ```
+  </Tab>
+  <Tab title="Scala CLI">
+    ```scala
+    //> using dep "org.typelevel::otel4s-core-logs:@VERSION@"
+    ```
+  </Tab>
+</Tabs>
+
+This allows users to choose their preferred otel4s backend.
+
+### For Application Developers
+
+Use the full backend with exporters:
+
+<Tabs>
+  <Tab title="sbt">
+    ```scala
+    libraryDependencies ++= Seq(
+      "org.typelevel" %% "otel4s-oteljava" % "@VERSION@",
+      "io.opentelemetry" % "opentelemetry-exporter-otlp" % "@OPEN_TELEMETRY_VERSION@" % Runtime,
+      "io.opentelemetry" % "opentelemetry-sdk-extension-autoconfigure" % "@OPEN_TELEMETRY_VERSION@" % Runtime
+    )
+    javaOptions += "-Dotel.java.global-autoconfigure.enabled=true"
+    ```
+  </Tab>
+  <Tab title="Scala CLI">
+    ```scala
+    //> using dep "org.typelevel::otel4s-oteljava:@VERSION@"
+    //> using dep "io.opentelemetry:opentelemetry-exporter-otlp:@OPEN_TELEMETRY_VERSION@"
+    //> using dep "io.opentelemetry:opentelemetry-sdk-extension-autoconfigure:@OPEN_TELEMETRY_VERSION@"
+    //> using javaOpt "-Dotel.java.global-autoconfigure.enabled=true"
+    ```
+  </Tab>
+</Tabs>
+
+## Getting a LoggerProvider
+
+Create a `LoggerProvider` from the backend:
+
+```scala
+import cats.effect.{IO, IOApp}
+import org.typelevel.otel4s.oteljava.OtelJava
+import org.typelevel.otel4s.oteljava.context.Context
+import org.typelevel.otel4s.logs.LoggerProvider
+
+object TelemetryApp extends IOApp.Simple {
+  def run: IO[Unit] =
+    OtelJava
+      .autoConfigured[IO]()
+      .use { sdk =>
+        program(sdk.loggerProvider)
+      }
+
+  def program(
+      loggerProvider: LoggerProvider[IO, Context]
+  ): IO[Unit] = ???
+}
+```
+
+## Building a Bridge
+
+Here's how to bridge logs from an existing framework into OpenTelemetry:
+
+### Basic Structure
+
+1. Get the current context
+2. Build a log record with severity, timestamp, body, and attributes
+3. Attach context so trace and span IDs propagate
+4. Emit the record
+
+### Example: Bridging Scribe
+
+```scala
+import cats.Monad
+import cats.mtl.Local
+import cats.syntax.all._
+import org.typelevel.otel4s.{AnyValue, Attribute, Attributes}
+import org.typelevel.otel4s.logs.{LogRecordBuilder, LoggerProvider, Severity}
+import org.typelevel.otel4s.logs.{Logger => OtelLogger}
+import org.typelevel.otel4s.semconv.attributes.{CodeAttributes, ExceptionAttributes}
+import scribe._
+import java.io.{PrintWriter, StringWriter}
+import scala.util.chaining._
+
+final class ScriberLoggerSupport[F[_]: Monad, Ctx](
+  provider: LoggerProvider[F, Ctx],
+  local: Local[F, Ctx]
+) extends LoggerSupport[F[Unit]] {
+
+  def log(record: => LogRecord): F[Unit] =
+    for {
+      r <- Monad[F].pure(record)
+      logger <- provider.logger(r.className).withVersion("0.0.1").get
+      ctx <- local.ask
+      isEnabled <- logger.meta.isEnabled(ctx, toSeverity(r.level), None)
+      _ <- if (isEnabled) buildLogRecord(logger, r).emit else Monad[F].unit
+    } yield ()
+
+  private def buildLogRecord(
+      logger: OtelLogger[F, Ctx],
+      record: LogRecord
+  ): LogRecordBuilder[F, Ctx] =
+    logger.logRecordBuilder
+      .pipe { l =>
+        toSeverity(record.level).fold(l)(l.withSeverity)
+      }
+      .withSeverityText(record.level.name)
+      .withTimestamp(record.timeStamp.millis)
+      .withBody(AnyValue.string(record.logOutput.plainText))
+      .pipe { builder =>
+        builder.addAttributes(
+          if (record.thread.getId != -1) {
+            Attributes(
+              Attribute("thread.id", record.thread.getId),
+              Attribute("thread.name", record.thread.getName)
+            )
+          } else {
+            Attributes(Attribute("thread.name", record.thread.getName))
+          }
+        )
+      }
+      .pipe { builder => builder.addAttributes(codePathAttributes(record)) }
+      .pipe { builder =>
+        record.messages
+          .collect { case scribe.throwable.TraceLoggableMessage(throwable) => throwable }
+          .foldLeft(builder)((b, t) => b.addAttributes(exceptionAttributes(t)))
+      }
+      .pipe { builder =>
+        if (record.data.nonEmpty) builder.addAttributes(dataAttributes(record.data))
+        else builder
+      }
+
+  private def toSeverity(level: Level): Option[Severity] =
+    level match {
+      case Level("TRACE", _) => Some(Severity.trace)
+      case Level("DEBUG", _) => Some(Severity.debug)
+      case Level("INFO", _)  => Some(Severity.info)
+      case Level("WARN", _)  => Some(Severity.warn)
+      case Level("ERROR", _) => Some(Severity.error)
+      case Level("FATAL", _) => Some(Severity.fatal)
+      case _                 => None
+    }
+
+  private def codePathAttributes(record: LogRecord): Attributes = {
+    val builder = Attributes.newBuilder
+    builder += Attribute("code.namespace", record.className)
+    builder += CodeAttributes.CodeFilePath(record.fileName)
+    builder ++= record.line.map(line => CodeAttributes.CodeLineNumber(line.toLong))
+    builder ++= record.column.map(col => CodeAttributes.CodeColumnNumber(col.toLong))
+    builder ++= record.methodName.map(name => CodeAttributes.CodeFunctionName(name))
+    builder.result()
+  }
+
+  private def exceptionAttributes(exception: Throwable): Attributes = {
+    val builder = Attributes.newBuilder
+    builder += ExceptionAttributes.ExceptionType(exception.getClass.getName)
+
+    val message = exception.getMessage
+    if (message != null) {
+      builder += ExceptionAttributes.ExceptionMessage(message)
+    }
+
+    if (exception.getStackTrace.nonEmpty) {
+      val stringWriter = new StringWriter()
+      val printWriter = new PrintWriter(stringWriter)
+      exception.printStackTrace(printWriter)
+      builder += ExceptionAttributes.ExceptionStacktrace(stringWriter.toString)
+    }
+
+    builder.result()
+  }
+
+  private def dataAttributes(data: Map[String, () => Any]): Attributes = {
+    val builder = Attributes.newBuilder
+    data.foreach { case (key, getValue) =>
+      getValue() match {
+        case v: String  => builder += Attribute(key, v)
+        case v: Boolean => builder += Attribute(key, v)
+        case v: Long    => builder += Attribute(key, v)
+        case v: Double  => builder += Attribute(key, v)
+        case _          => // ignore or stringify
+      }
+    }
+    builder.result()
+  }
+}
+```
+
+### Using the Bridge
+
+```scala
+import org.typelevel.otel4s.Otel4s
+
+def program[F[_]: Monad](otel4s: Otel4s[F]): F[Unit] = {
+  val logger = new ScriberLoggerSupport(otel4s.loggerProvider, otel4s.localContext)
+
+  otel4s.tracerProvider.get("tracer").flatMap { tracer =>
+    tracer.spanBuilder("test-span").build.surround {
+      logger.error(
+        "something went wrong",
+        new RuntimeException("Oops, something went wrong")
+      )
+    }
+  }
+}
+```
+
+The log record is automatically correlated with the current tracing context, allowing you to see logs alongside traces in your observability platform.
+
+## Best Practices for Library Authors
+
+### Timestamps
+
+Use `withObservedTimestamp` for when your adapter observed the event. If your source event carries the original creation time, also set `withTimestamp` to that origin time.
+
+```scala
+logger.logRecordBuilder
+  .withTimestamp(originalEventTime)
+  .withObservedTimestamp(observedTime)
+```
+
+### Attributes
+
+Use semantic conventions when applicable:
+
+```scala
+import org.typelevel.otel4s.semconv.attributes._
+
+// Code location
+CodeAttributes.CodeFilePath("MyClass.scala")
+CodeAttributes.CodeLineNumber(42L)
+CodeAttributes.CodeFunctionName("processRequest")
+
+// Exceptions
+ExceptionAttributes.ExceptionType("java.lang.RuntimeException")
+ExceptionAttributes.ExceptionMessage("Something failed")
+ExceptionAttributes.ExceptionStacktrace(stackTrace)
+```
+
+Prefer stable names and values that are easy to aggregate.
+
+### Context Propagation
+
+Logs become far more valuable when they carry trace and span IDs. By default, otel4s uses the current context to propagate trace and span IDs automatically.
+
+You can also explicitly inject context:
+
+```scala
+logger.logRecordBuilder
+  .withContext(specificContext)
+  .withBody(AnyValue.string("Log message"))
+  .emit
+```
+
+### Backpressure and Performance
+
+The `emit` call sends the record into the processing pipeline. By default, the backend configures a batch processor, so the effect is usually non-blocking.
+
+**Performance tips:**
+- Avoid heavy string concatenation on the hot path
+- Prefer structured attributes over preformatted strings
+- Keep callback computations lightweight
+- Use lazy message evaluation when supported
+
+### Checking if Logging is Enabled
+
+The `logger.meta.isEnabled` method checks whether the logging pipeline is active:
+
+```scala
+for {
+  ctx <- local.ask
+  enabled <- logger.meta.isEnabled(ctx, Severity.info, None)
+  _ <- if (enabled) buildAndEmitLogRecord() else Monad[F].unit
+} yield ()
+```
+
+<Note>
+  `isEnabled` checks if the OpenTelemetry logging pipeline is active, not whether a specific logger is enabled. If the pipeline is active, it always returns true. If the implementation is no-op, it always returns false.
+</Note>
+
+## Severity Levels
+
+OpenTelemetry defines standard severity levels:
+
+```scala
+object Severity {
+  val trace: Severity
+  val debug: Severity
+  val info: Severity
+  val warn: Severity
+  val error: Severity
+  val fatal: Severity
+}
+```
+
+Map your logging framework's levels to these standard severities.
+
+## Type Signatures
+
+```scala
+trait LoggerProvider[F[_], Ctx] {
+  def get(name: String): LoggerBuilder[F, Ctx]
+  def logger(name: String): LoggerBuilder[F, Ctx]
+}
+
+trait Logger[F[_], Ctx] {
+  def meta: InstrumentMeta[F, Ctx]
+  def logRecordBuilder: LogRecordBuilder[F, Ctx]
+}
+
+trait LogRecordBuilder[F[_], Ctx] {
+  def withTimestamp(timestamp: FiniteDuration): LogRecordBuilder[F, Ctx]
+  def withObservedTimestamp(timestamp: FiniteDuration): LogRecordBuilder[F, Ctx]
+  def withSeverity(severity: Severity): LogRecordBuilder[F, Ctx]
+  def withSeverityText(text: String): LogRecordBuilder[F, Ctx]
+  def withBody(body: AnyValue): LogRecordBuilder[F, Ctx]
+  def addAttribute[A](attribute: Attribute[A]): LogRecordBuilder[F, Ctx]
+  def addAttributes(attributes: Attribute[_]*): LogRecordBuilder[F, Ctx]
+  def withContext(context: Ctx): LogRecordBuilder[F, Ctx]
+  def emit: F[Unit]
+}
+```

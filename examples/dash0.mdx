@@ -1,0 +1,207 @@
+---
+title: "Dash0 Integration"
+description: "Send metrics and traces to Dash0 for observability and analysis"
+---
+
+In this example, we'll use [Dash0](https://www.dash0.com) to collect and visualize metrics and traces produced by an otel4s application. Unlike the Jaeger example, you don't need to set up a collector service locally—telemetry is sent directly to the Dash0 API.
+
+<Note>
+  Dash0 offers a 14-day free trial. After that, 1 million spans cost 20 cents. It provides robust analysis and visualization tools for exploring telemetry data.
+</Note>
+
+## Project Setup
+
+Configure your project with the required dependencies:
+
+<CodeGroup>
+
+```scala sbt
+// Add to build.sbt
+libraryDependencies ++= Seq(
+  "org.typelevel" %% "otel4s-oteljava" % "@VERSION@",
+  "io.opentelemetry" % "opentelemetry-exporter-otlp" % "@OPEN_TELEMETRY_VERSION@" % Runtime,
+  "io.opentelemetry" % "opentelemetry-sdk-extension-autoconfigure" % "@OPEN_TELEMETRY_VERSION@" % Runtime
+)
+
+run / fork := true
+javaOptions += "-Dotel.java.global-autoconfigure.enabled=true"
+javaOptions += "-Dotel.service.name=dash0-example"
+javaOptions += "-Dotel.exporter.otlp.endpoint=https://ingress.eu-west-1.aws.dash0.com"
+```
+
+```scala scala-cli
+// Add to tracing.scala
+//> using dep "org.typelevel::otel4s-oteljava:@VERSION@"
+//> using dep "io.opentelemetry:opentelemetry-exporter-otlp:@OPEN_TELEMETRY_VERSION@"
+//> using dep "io.opentelemetry:opentelemetry-sdk-extension-autoconfigure:@OPEN_TELEMETRY_VERSION@"
+//> using javaOpt "-Dotel.java.global-autoconfigure.enabled=true"
+//> using javaOpt "-Dotel.service.name=dash0-example"
+//> using javaOpt "-Dotel.exporter.otlp.endpoint=https://ingress.eu-west-1.aws.dash0.com"
+```
+
+</CodeGroup>
+
+<Note>
+  The endpoint URL may differ depending on your cloud region. Check the Dash0 settings for your specific endpoint.
+</Note>
+
+## OpenTelemetry SDK Configuration
+
+The OpenTelemetry SDK can be configured via system properties or environment variables. See the full list of [environment variable configurations](https://opentelemetry.io/docs/languages/java/configuration) for more options.
+
+## Acquiring a Dash0 Auth Token
+
+<Steps>
+
+### Create an Account
+
+Sign up at [dash0.com/sign-up](https://www.dash0.com/sign-up).
+
+### Log In
+
+Access your Dash0 account.
+
+### Navigate to Organization Settings
+
+Go to the organization settings page.
+
+### Generate Auth Token
+
+Under "Auth Tokens", generate a new auth token.
+
+### Find Your Endpoint
+
+Under "Endpoints", find the value for `-Dotel.exporter.otlp.endpoint` specific to your cloud region.
+
+### Use Different Tokens
+
+Create separate auth tokens and datasets for test, production, and local development to organize your data.
+
+</Steps>
+
+## Dash0 Configuration
+
+Configure the auth token and dataset name using environment variables:
+
+```bash
+export OTEL_EXPORTER_OTLP_HEADERS="Authorization=Bearer auth_token,Dash0-Dataset=otel-metrics"
+```
+
+**Headers:**
+- `Authorization` - Bearer token for authentication
+- `Dash0-Dataset` - The dataset name for metrics (defaults to `default` if not set)
+
+<Note>
+  Each service's traces will automatically land in a dataset named after the `otel.service.name` configuration.
+</Note>
+
+## Application Example
+
+This example demonstrates both metrics and tracing:
+
+```scala
+import java.util.concurrent.TimeUnit
+import cats.effect.{Async, IO, IOApp}
+import cats.effect.std.Console
+import cats.effect.std.Random
+import cats.syntax.all._
+import org.typelevel.otel4s.{Attribute, AttributeKey}
+import org.typelevel.otel4s.oteljava.OtelJava
+import org.typelevel.otel4s.metrics.Histogram
+import org.typelevel.otel4s.trace.Tracer
+import scala.concurrent.duration._
+
+trait Work[F[_]] {
+  def doWork: F[Unit]
+}
+
+object Work {
+  def apply[F[_]: Async: Tracer: Console](histogram: Histogram[F, Double]): Work[F] =
+    new Work[F] {
+      def doWork: F[Unit] =
+        Tracer[F].span("Work.DoWork").use { span =>
+          span.addEvent("Starting the work.") *>
+            doWorkInternal(steps = 10) *>
+            span.addEvent("Finished working.")
+        }
+
+      def doWorkInternal(steps: Int): F[Unit] = {
+        val step = Tracer[F]
+          .span("internal", Attribute(AttributeKey.long("steps"), steps.toLong))
+          .surround {
+            for {
+              random <- Random.scalaUtilRandom
+              delay <- random.nextIntBounded(1000)
+              _ <- Async[F].sleep(delay.millis)
+              _ <- Console[F].println("Doin' work")
+            } yield ()
+          }
+
+        val metered = histogram.recordDuration(TimeUnit.MILLISECONDS).surround(step)
+
+        if (steps > 0) metered *> doWorkInternal(steps - 1) else metered
+      }
+    }
+}
+
+object TracingExample extends IOApp.Simple {
+  def run: IO[Unit] = {
+    OtelJava
+      .autoConfigured[IO]()
+      .evalMap { otel4s =>
+        otel4s.tracerProvider.get("com.service.runtime")
+          .flatMap { implicit tracer: Tracer[IO] =>
+            for {
+              meter <- otel4s.meterProvider.get("com.service.runtime")
+              histogram <- meter.histogram[Double]("work.execution.duration").create
+              _ <- Work[IO](histogram).doWork
+            } yield ()
+          }
+      }
+      .use_
+  }
+}
+```
+
+## Running the Application
+
+<CodeGroup>
+
+```bash sbt
+export OTEL_EXPORTER_OTLP_HEADERS="Authorization=Bearer auth_token,Dash0-Dataset=otel-metrics"
+sbt run
+```
+
+```bash scala-cli
+export OTEL_EXPORTER_OTLP_HEADERS="Authorization=Bearer auth_token,Dash0-Dataset=otel-metrics"
+scala-cli run tracing.scala
+```
+
+</CodeGroup>
+
+## Viewing Data in Dash0
+
+Navigate to [https://app.dash0.com/](https://app.dash0.com/) to query and visualize your collected traces and metrics.
+
+### Traces
+
+You'll see the trace hierarchy with:
+- Parent span "Work.DoWork"
+- Nested "internal" spans
+- Events marking work start and completion
+- Attributes including the "steps" counter
+- Timing information for each span
+
+### Metrics
+
+The `work.execution.duration` histogram will show:
+- Execution time distribution
+- Statistical aggregations
+- Time-series visualization
+- Histogram buckets
+
+Use Dash0's query and visualization tools to:
+- Create custom dashboards
+- Set up alerts
+- Analyze performance patterns
+- Correlate metrics with traces

@@ -1,0 +1,103 @@
+---
+title: "SDK Testkit"
+description: "Testing with the otel4s SDK testkit for pure Scala implementations"
+---
+
+The otel4s SDK provides a testkit module for testing pure Scala implementations without relying on the OpenTelemetry Java SDK. This is useful when you want to test your instrumentation in a lightweight manner.
+
+## Installation
+
+<CodeGroup>
+
+```scala sbt
+// Add to build.sbt
+libraryDependencies ++= Seq(
+  "org.typelevel" %% "otel4s-sdk-testkit" % "@VERSION@" % Test
+)
+```
+
+```scala scala-cli
+// Add to your *.scala file
+//> using test.dep "org.typelevel::otel4s-sdk-testkit:@VERSION@"
+```
+
+</CodeGroup>
+
+## Overview
+
+The SDK testkit provides in-memory exporters and readers that allow you to:
+
+- Capture emitted spans and metrics in memory
+- Assert on the telemetry data structure
+- Test instrumentation without external dependencies
+- Run fast, isolated unit tests
+
+## Key Features
+
+<Steps>
+
+### Framework Agnostic
+
+The testkit works with any Scala test framework including MUnit, ScalaTest, Weaver, and others.
+
+### In-Memory Storage
+
+All telemetry data is stored in memory, making tests fast and isolated from external systems.
+
+### Full Control
+
+Access to all telemetry attributes, events, and metadata for comprehensive testing.
+
+</Steps>
+
+## Usage Pattern
+
+The general pattern for using the SDK testkit:
+
+1. Create an in-memory testkit instance
+2. Use the testkit's tracer or meter provider in your code
+3. Execute your instrumented code
+4. Collect the emitted telemetry data
+5. Assert on the captured data
+
+```scala
+import cats.effect.IO
+import org.typelevel.otel4s.sdk.testkit.trace.TracesTestkit
+
+// Example test structure
+def test: IO[Unit] = {
+  TracesTestkit.inMemory[IO]().use { testkit =>
+    for {
+      tracer <- testkit.tracerProvider.get("test-service")
+      // Use tracer to instrument code
+      _ <- tracer.span("operation").surround(IO.unit)
+      // Collect spans
+      spans <- testkit.finishedSpans
+      // Assert on spans
+      _ <- IO(assert(spans.size == 1))
+      _ <- IO(assert(spans.head.name == "operation"))
+    } yield ()
+  }
+}
+```
+
+## Benefits
+
+- **Fast Tests**: No external services or network calls required
+- **Deterministic**: Consistent results across test runs
+- **Isolated**: Each test gets its own testkit instance
+- **Comprehensive**: Access to all telemetry data for detailed assertions
+
+## When to Use
+
+Use the SDK testkit when:
+
+- Testing custom instrumentation logic
+- Verifying span structure and attributes
+- Validating metric values and labels
+- Running CI/CD pipelines without external dependencies
+- Developing instrumentation libraries
+
+<Note>
+  For production use cases or testing with the OpenTelemetry Java SDK, use the [OtelJava Testkit](/testing/testkit-oteljava) instead.
+</Note>

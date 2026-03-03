@@ -1,0 +1,370 @@
+---
+title: Attributes
+description: API reference for Attributes, an immutable collection of key-value pairs for metadata in otel4s
+---
+
+An `Attributes` is an immutable collection of `Attribute[_]` instances. It contains only unique keys and is used throughout otel4s to attach metadata to spans, metrics, and other telemetry data.
+
+## Type Signature
+
+```scala
+sealed trait Attributes extends immutable.Iterable[Attribute[_]]
+```
+
+## Creating Attributes
+
+### apply
+
+```scala
+Attributes(attributes: Attribute[_]*): Attributes
+```
+
+Creates `Attributes` with the given attributes.
+
+<ParamField path="attributes" type="Attribute[_]*" required>
+  Variable number of attributes to include
+</ParamField>
+
+**Note:** If there are duplicated keys, only the last occurrence will be retained.
+
+**Example:**
+
+```scala
+val attrs = Attributes(
+  Attribute("http.method", "GET"),
+  Attribute("http.status_code", 200L)
+)
+```
+
+### empty
+
+```scala
+Attributes.empty: Attributes
+```
+
+Returns empty `Attributes`.
+
+**Example:**
+
+```scala
+val attrs = Attributes.empty
+```
+
+### fromSpecific
+
+```scala
+Attributes.fromSpecific(attributes: IterableOnce[Attribute[_]]): Attributes
+```
+
+Creates `Attributes` from a collection.
+
+<ParamField path="attributes" type="IterableOnce[Attribute[_]]" required>
+  The collection of attributes to use
+</ParamField>
+
+**Note:** If there are duplicated keys, only the last occurrence will be retained.
+
+## Retrieving Attributes
+
+### get (by name)
+
+```scala
+def get[T: KeySelect](name: String): Option[Attribute[T]]
+```
+
+Retrieves an `Attribute` matching the given attribute name and type.
+
+<ParamField path="name" type="String" required>
+  The name of the attribute
+</ParamField>
+
+<ParamField path="T" type="Type Parameter" required>
+  The type of the attribute value (must have a `KeySelect` instance)
+</ParamField>
+
+**Returns:** `Option[Attribute[T]]` - Some(attribute) if found, None otherwise
+
+**Example:**
+
+```scala
+val method: Option[Attribute[String]] = attrs.get[String]("http.method")
+val statusCode: Option[Attribute[Long]] = attrs.get[Long]("http.status_code")
+```
+
+### get (by key)
+
+```scala
+def get[T](key: AttributeKey[T]): Option[Attribute[T]]
+```
+
+Retrieves an `Attribute` matching the given attribute key.
+
+<ParamField path="key" type="AttributeKey[T]" required>
+  The attribute key
+</ParamField>
+
+**Returns:** `Option[Attribute[T]]` - Some(attribute) if found, None otherwise
+
+## Adding Attributes
+
+### added (by name)
+
+```scala
+def added[T: KeySelect](name: String, value: T): Attributes
+```
+
+Adds an `Attribute` with the given name and value, replacing any attribute with the same name and type if one exists.
+
+<ParamField path="name" type="String" required>
+  The name of the attribute
+</ParamField>
+
+<ParamField path="value" type="T" required>
+  The value of the attribute
+</ParamField>
+
+**Returns:** `Attributes` - A new `Attributes` instance with the attribute added
+
+**Example:**
+
+```scala
+val updated = attrs.added("http.url", "https://example.com")
+```
+
+### added (by key)
+
+```scala
+def added[T](key: AttributeKey[T], value: T): Attributes
+```
+
+Adds an `Attribute` with the given key and value, replacing any attribute with the same key if one exists.
+
+<ParamField path="key" type="AttributeKey[T]" required>
+  The attribute key
+</ParamField>
+
+<ParamField path="value" type="T" required>
+  The value of the attribute
+</ParamField>
+
+**Returns:** `Attributes` - A new `Attributes` instance with the attribute added
+
+### added (attribute)
+
+```scala
+def added(attribute: Attribute[_]): Attributes
+```
+
+Adds the given `Attribute`, replacing any attribute with the same key if one exists.
+
+<ParamField path="attribute" type="Attribute[_]" required>
+  The attribute to add
+</ParamField>
+
+**Returns:** `Attributes` - A new `Attributes` instance with the attribute added
+
+### + operator
+
+```scala
+def +(attribute: Attribute[_]): Attributes
+```
+
+Alias for `added(attribute)`.
+
+**Example:**
+
+```scala
+val updated = attrs + Attribute("http.url", "https://example.com")
+```
+
+## Combining Attributes
+
+### concat
+
+```scala
+def concat(that: IterableOnce[Attribute[_]]): Attributes
+```
+
+Concatenates this `Attributes` with another collection of attributes.
+
+<ParamField path="that" type="IterableOnce[Attribute[_]]" required>
+  The attributes to concatenate
+</ParamField>
+
+**Returns:** `Attributes` - A new `Attributes` instance with both sets of attributes
+
+If multiple attributes have the same key, only the final one (according to `that`'s iterator) will be retained.
+
+### ++ operator
+
+```scala
+def ++(that: IterableOnce[Attribute[_]]): Attributes
+```
+
+Alias for `concat(that)`.
+
+**Example:**
+
+```scala
+val attrs1 = Attributes(Attribute("key1", "value1"))
+val attrs2 = Attributes(Attribute("key2", "value2"))
+val combined = attrs1 ++ attrs2
+```
+
+## Builder Pattern
+
+### newBuilder
+
+```scala
+Attributes.newBuilder: Attributes.Builder
+```
+
+Creates an empty `Builder` for constructing `Attributes`.
+
+**Example:**
+
+```scala
+val builder = Attributes.newBuilder
+builder.addOne("http.method", "GET")
+builder.addOne("http.status_code", 200L)
+val attrs = builder.result()
+```
+
+### Builder Methods
+
+```scala
+class Builder {
+  def addOne[A: KeySelect](name: String, value: A): Builder
+  def addOne[A](key: AttributeKey[A], value: A): Builder
+  def addOne(attribute: Attribute[_]): Builder
+  def addAll(attributes: IterableOnce[Attribute[_]]): Builder
+  def result(): Attributes
+  def clear(): Unit
+}
+```
+
+**Example:**
+
+```scala
+val attrs = Attributes.newBuilder
+  .addOne("service.name", "my-service")
+  .addOne("service.version", "1.0.0")
+  .addOne("deployment.environment", "production")
+  .result()
+```
+
+## Custom Attribute Creation
+
+### Attributes.Make
+
+The `Attributes.Make[A]` trait allows creating `Attributes` from arbitrary types.
+
+```scala
+trait Make[A] {
+  def make(a: A): Attributes
+}
+```
+
+### from
+
+```scala
+Attributes.from[A](value: A)(implicit make: Make[A]): Attributes
+```
+
+Creates `Attributes` from a value using an implicit `Make` instance.
+
+<ParamField path="value" type="A" required>
+  The value to convert to attributes
+</ParamField>
+
+**Example:**
+
+```scala
+case class User(id: Long, group: String)
+
+implicit val userAttributesMake: Attributes.Make[User] =
+  user => Attributes(
+    Attribute("user.id", user.id),
+    Attribute("user.group", user.group)
+  )
+
+val attributes: Attributes = Attributes.from(User(1L, "admin"))
+// Result: Attributes(Attribute("user.id", 1L), Attribute("user.group", "admin"))
+```
+
+## Collection Operations
+
+Since `Attributes` extends `immutable.Iterable[Attribute[_]]`, you can use standard collection operations:
+
+```scala
+val attrs = Attributes(
+  Attribute("key1", "value1"),
+  Attribute("key2", 42L)
+)
+
+// Iterate
+attrs.foreach(attr => println(attr))
+
+// Map
+val names = attrs.map(_.key.name)
+
+// Filter
+val stringAttrs = attrs.filter(_.key.`type` == AttributeType.String)
+
+// Size
+val count = attrs.size
+
+// Check if empty
+val isEmpty = attrs.isEmpty
+```
+
+## Type Classes
+
+### Show
+
+```scala
+implicit val showAttributes: Show[Attributes]
+```
+
+Provides a `Show` instance for pretty-printing attributes.
+
+**Example:**
+
+```scala
+import cats.syntax.show._
+println(attrs.show)
+// Output: Attributes(Attribute("http.method", "GET"), Attribute("http.status_code", 200))
+```
+
+### Hash
+
+```scala
+implicit val hashAttributes: Hash[Attributes]
+```
+
+Provides a `Hash` instance for comparing attributes.
+
+### Monoid
+
+```scala
+implicit val monoidAttributes: Monoid[Attributes]
+```
+
+Provides a `Monoid` instance for combining attributes.
+
+**Example:**
+
+```scala
+import cats.syntax.monoid._
+
+val attrs1 = Attributes(Attribute("key1", "value1"))
+val attrs2 = Attributes(Attribute("key2", "value2"))
+val combined = attrs1 |+| attrs2
+```
+
+## See Also
+
+- [Attribute](/api/attribute) - Individual attribute instances
+- [AttributeKey](/api/attribute-key) - Typed attribute keys
+- [Span](/api/span) - Using attributes with spans
+- [Meter](/api/meter) - Using attributes with metrics

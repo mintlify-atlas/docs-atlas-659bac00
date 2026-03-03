@@ -1,0 +1,87 @@
+---
+title: TracerProvider
+description: The entry point of the tracing API that provides access to Tracer instances
+---
+
+`TracerProvider[F[_]]` is the entry point of the tracing API. It provides access to `Tracer` instances for instrumenting your application.
+
+## Overview
+
+The `TracerProvider` is responsible for creating and managing `Tracer` instances. Each tracer is associated with an instrumentation scope, typically identified by the library or package name.
+
+## Methods
+
+### get
+
+<ParamField path="name" type="String" required>
+  The name of the instrumentation scope, such as the instrumentation library, package, or fully qualified class name
+</ParamField>
+
+**Returns:** `F[Tracer[F]]`
+
+Creates a named `Tracer` instance.
+
+```scala
+val tracerProvider: TracerProvider[IO] = ???
+val tracer: IO[Tracer[IO]] = tracerProvider.get("com.service.runtime")
+```
+
+### tracer
+
+<ParamField path="name" type="String" required>
+  The name of the instrumentation scope, such as the instrumentation library, package, or fully qualified class name
+</ParamField>
+
+**Returns:** `TracerBuilder[F]`
+
+Creates a `TracerBuilder` for a named `Tracer` instance. The builder allows you to configure additional metadata such as version and schema URL.
+
+```scala
+val tracerProvider: TracerProvider[IO] = ???
+val tracer: IO[Tracer[IO]] = tracerProvider
+  .tracer("com.service.runtime")
+  .withVersion("1.0.0")
+  .withSchemaUrl("https://opentelemetry.io/schema/v1.1.0")
+  .get
+```
+
+### liftTo
+
+<ParamField path="G[_]" type="Type Parameter" required>
+  The target effect type with a `MonadCancelThrow` instance
+</ParamField>
+
+**Returns:** `TracerProvider[G]`
+
+Modifies the context `F` using an implicit `KindTransformer` from `F` to `G`. This allows you to transform the provider to work with a different effect type.
+
+**Requirements:**
+- Implicit `MonadCancelThrow[F]`
+- Implicit `MonadCancelThrow[G]`
+- Implicit `KindTransformer[F, G]`
+
+## Companion Object
+
+### apply
+
+**Returns:** `TracerProvider[F]`
+
+Summons an implicit `TracerProvider[F]` instance from the context.
+
+```scala
+val provider = TracerProvider[IO]
+```
+
+### noop
+
+<ParamField path="F[_]" type="Type Parameter" required>
+  The effect type with an `Applicative` instance
+</ParamField>
+
+**Returns:** `TracerProvider[F]`
+
+Creates a no-op implementation of the `TracerProvider`. Both the provider and the `TracerBuilder` it creates have no-op implementations.
+
+```scala
+val noopProvider: TracerProvider[IO] = TracerProvider.noop[IO]
+```

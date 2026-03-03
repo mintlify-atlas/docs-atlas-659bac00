@@ -1,0 +1,370 @@
+---
+title: Tracing
+description: Learn how to instrument your Scala applications with distributed tracing using otel4s
+---
+
+Tracing enables you to track the flow of requests through your distributed systems. The `Tracer` is the entry point to all tracing capabilities in otel4s, allowing you to create and manage spans, extract context from carriers, and propagate context downstream.
+
+## Getting Started with Tracer
+
+The `Tracer` is obtained from a `TracerProvider`. Currently, otel4s provides a backend built on top of OpenTelemetry Java.
+
+### Installation
+
+<Tabs>
+  <Tab title="sbt">
+    ```scala
+    libraryDependencies ++= Seq(
+      "org.typelevel" %% "otel4s-oteljava" % "@VERSION@",
+      "io.opentelemetry" % "opentelemetry-exporter-otlp" % "@OPEN_TELEMETRY_VERSION@" % Runtime,
+      "io.opentelemetry" % "opentelemetry-sdk-extension-autoconfigure" % "@OPEN_TELEMETRY_VERSION@" % Runtime
+    )
+    javaOptions += "-Dotel.java.global-autoconfigure.enabled=true"
+    ```
+  </Tab>
+  <Tab title="Scala CLI">
+    ```scala
+    //> using dep "org.typelevel::otel4s-oteljava:@VERSION@"
+    //> using dep "io.opentelemetry:opentelemetry-exporter-otlp:@OPEN_TELEMETRY_VERSION@"
+    //> using dep "io.opentelemetry:opentelemetry-sdk-extension-autoconfigure:@OPEN_TELEMETRY_VERSION@"
+    //> using javaOpt "-Dotel.java.global-autoconfigure.enabled=true"
+    ```
+  </Tab>
+</Tabs>
+
+### Creating a Tracer
+
+Once configured, you can create a `Tracer` instance:
+
+```scala
+import cats.effect.IO
+import org.typelevel.otel4s.trace.Tracer
+import org.typelevel.otel4s.oteljava.OtelJava
+
+OtelJava.autoConfigured[IO]().evalMap { otel4s =>
+  otel4s.tracerProvider.get("com.service").flatMap { implicit tracer: Tracer[IO] =>
+    // use tracer here
+    ???
+  }
+}
+```
+
+<Warning>
+  `OtelJava.autoConfigured` creates an **isolated** **non-global** instance. If you create multiple instances, they won't interoperate (i.e., be able to see each other's spans).
+</Warning>
+
+## Core Concepts
+
+### Spans
+
+A span represents a single operation within a trace. Each span captures:
+- Operation name
+- Start and end timestamps
+- Attributes (key-value pairs)
+- Events and links
+- Status information
+
+### Span Lifecycle
+
+Spans in otel4s have two lifecycle management strategies:
+
+**Automatic (Resource-based)**
+
+The span is automatically started and ended:
+
+```scala
+tracer.span("operation").use { span =>
+  span.addAttribute(Attribute("key", "value")) *>
+  span.setStatus(StatusCode.Ok)
+}
+```
+
+**Manual (Unmanaged)**
+
+You control when the span ends:
+
+```scala
+tracer.spanBuilder("operation").build.startUnmanaged.flatMap { span =>
+  span.setStatus(StatusCode.Ok) >> span.end
+}
+```
+
+<Warning>
+  Manual spans must be explicitly ended by calling `span.end`. Failing to end a span will cause it to remain active indefinitely.
+</Warning>
+
+## Creating Spans
+
+### Simple Spans
+
+Use the `span` API for straightforward span creation:
+
+```scala
+import org.typelevel.otel4s.Attribute
+import org.typelevel.otel4s.trace.Tracer
+
+case class User(email: String)
+
+class UserRepository[F[_]: Monad: Tracer](storage: Ref[F, Map[Long, User]]) {
+  def findUser(userId: Long): F[Option[User]] =
+    Tracer[F].span("find-user", Attribute("user_id", userId)).use { span =>
+      for {
+        current <- storage.get
+        user <- Monad[F].pure(current.get(userId))
+        _ <- span.addAttribute(Attribute("user_exists", user.isDefined))
+      } yield user
+    }
+}
+```
+
+The tracer automatically determines whether to create a child span or root span based on the presence of a valid parent in the tracing context.
+
+### Advanced Span Configuration
+
+Use `spanBuilder` for more control:
+
+```scala
+tracer.spanBuilder("complex-operation")
+  .withSpanKind(SpanKind.Client)
+  .addAttribute(Attribute("http.method", "GET"))
+  .addLink(parentSpanContext, Attributes.empty)
+  .withStartTimestamp(customTimestamp)
+  .build
+  .use { span =>
+    // operation logic
+  }
+```
+
+## Span Relationships
+
+### Child Spans
+
+By default, spans created within another span's context become children:
+
+```scala
+tracer.span("parent").use { _ =>
+  tracer.span("child-1").use(_ => ???) *>
+  tracer.span("child-2").use(_ => ???)
+}
+```
+
+### Root Spans
+
+Create a span with no parent using `rootScope` or `rootSpan`:
+
+```scala
+// Using rootScope - creates independent root spans for each inner operation
+Tracer[F].rootScope {
+  repo.findUser(userId) // creates a root span
+}
+
+// Using rootSpan - creates a single root span with children
+Tracer[F].rootSpan("handle-user").surround {
+  repo.findUser(userId) // creates a child span
+}
+```
+
+### Custom Parent Context
+
+Use `childScope` to specify a custom parent:
+
+```scala
+val span: Span[F] = ???
+
+tracer.childScope(span.context) {
+  tracer.span("custom-child").use { _ => ??? }
+}
+```
+
+## Span Operations
+
+### Adding Attributes
+
+```scala
+span.addAttribute(Attribute("http.status_code", 200L))
+span.addAttribute(Attribute("user.id", userId))
+```
+
+### Recording Events
+
+```scala
+import scala.concurrent.duration._
+
+// Event with current timestamp
+span.addEvent("cache-miss", Attribute("cache.key", key))
+
+// Event with custom timestamp
+span.addEvent(
+  "error-occurred",
+  timestamp = 5.seconds,
+  Attribute("error.type", "timeout")
+)
+```
+
+### Recording Exceptions
+
+```scala
+try {
+  riskyOperation()
+} catch {
+  case e: Exception =>
+    span.recordException(e, Attribute("handled", true))
+}
+```
+
+### Setting Status
+
+```scala
+import org.typelevel.otel4s.trace.StatusCode
+
+span.setStatus(StatusCode.Ok)
+span.setStatus(StatusCode.Error, "Operation failed")
+```
+
+### Updating Span Name
+
+```scala
+span.updateName("new-operation-name")
+```
+
+## Context Propagation
+
+### Joining Distributed Traces
+
+Extract parent context from carriers (e.g., HTTP headers) using `joinOrRoot`:
+
+```scala
+val w3cHeaders: Map[String, String] = Map(
+  "traceparent" -> "00-80f198ee56343ba864fe8b2a57d3eff7-e457b5a2e4d86bd1-01"
+)
+
+Tracer[F].joinOrRoot(w3cHeaders) {
+  Tracer[F].span("child").use { _ => ??? } // child of external span
+}
+```
+
+### Propagating Context
+
+Inject current context into carriers:
+
+```scala
+for {
+  headers <- tracer.propagate(Map.empty[String, String])
+  // headers now contains traceparent, tracestate, etc.
+  _ <- makeHttpRequest(headers)
+} yield ()
+```
+
+## Disabling Tracing
+
+Use `noopScope` to disable tracing for specific sections:
+
+```scala
+tracer.span("parent").use { _ =>
+  tracer.span("traced").use(_ => ???) *>
+  tracer.noopScope {
+    tracer.span("not-traced").use(_ => ???) // no-op
+  }
+}
+```
+
+## Working with Resources
+
+### Basic Resource Tracing
+
+```scala
+import org.typelevel.otel4s.trace.SpanOps
+
+Tracer[F].span("my-resource-span").resource.use { case SpanOps.Res(_, trace) =>
+  trace(Tracer[F].currentSpanContext) // properly propagates context
+}
+```
+
+<Note>
+  Spans created with `.resource` are **not automatically propagated** to the resource closure. You must use the `trace` function to propagate span details.
+</Note>
+
+### Structured Resource Tracing
+
+```scala
+class Connection[F[_]: Tracer] {
+  def use[A](f: Connection[F] => F[A]): F[A] =
+    Tracer[F].span("use_conn").surround(f(this))
+}
+
+object Connection {
+  def create[F[_]: Async: Tracer]: Resource[F, Connection[F]] =
+    Resource.make(
+      Tracer[F].span("acquire").surround(Async[F].pure(new Connection[F]))
+    )(_ => Tracer[F].span("release").surround(Async[F].unit))
+}
+
+val traced: F[Unit] = (for {
+  r <- Tracer[F].span("resource").resource
+  c <- Connection.create[F].mapK(r.trace)
+} yield (r, c)).use { case (res, connection) =>
+  res.trace(Tracer[F].span("use").surround(connection.use(_ => ???)))
+}
+```
+
+## SpanContext API
+
+Access span context information:
+
+```scala
+val context: SpanContext = span.context
+
+// Access context properties
+val traceId: String = context.traceId.toHex
+val spanId: String = context.spanId.toHex
+val isValid: Boolean = context.isValid
+val isRemote: Boolean = context.isRemote
+val isSampled: Boolean = context.isSampled
+```
+
+## Best Practices
+
+1. **Use resource-based spans** for automatic lifecycle management
+2. **Add meaningful attributes** to make traces searchable and debuggable
+3. **Record exceptions** to track error conditions
+4. **Set span status** to indicate success or failure
+5. **Use semantic conventions** for attribute names when available
+6. **Avoid creating too many spans** - focus on significant operations
+7. **Propagate context** properly in distributed systems
+
+## Type Signatures
+
+```scala
+trait Tracer[F[_]] {
+  def meta: InstrumentMeta[F]
+  def currentSpanContext: F[Option[SpanContext]]
+  def currentSpanOrNoop: F[Span[F]]
+  def spanBuilder(name: String): SpanBuilder[F]
+  def childScope[A](parent: SpanContext)(fa: F[A]): F[A]
+  def rootScope[A](fa: F[A]): F[A]
+  def noopScope[A](fa: F[A]): F[A]
+  def joinOrRoot[A, C: TextMapGetter](carrier: C)(fa: F[A]): F[A]
+  def propagate[C: TextMapUpdater](carrier: C): F[C]
+}
+
+trait Span[F[_]] {
+  def context: SpanContext
+  def isRecording: F[Boolean]
+  def updateName(name: String): F[Unit]
+  def addAttribute[A](attribute: Attribute[A]): F[Unit]
+  def addEvent(name: String, attributes: Attribute[_]*): F[Unit]
+  def recordException(exception: Throwable, attributes: Attribute[_]*): F[Unit]
+  def setStatus(status: StatusCode): F[Unit]
+  def setStatus(status: StatusCode, description: String): F[Unit]
+  def end: F[Unit]
+}
+
+trait SpanBuilder[F[_]] {
+  def withSpanKind(spanKind: SpanKind): SpanBuilder[F]
+  def addAttribute[A](attribute: Attribute[A]): SpanBuilder[F]
+  def addLink(spanContext: SpanContext, attributes: Attribute[_]*): SpanBuilder[F]
+  def withStartTimestamp(timestamp: FiniteDuration): SpanBuilder[F]
+  def root: SpanBuilder[F]
+  def build: SpanOps[F]
+}
+```

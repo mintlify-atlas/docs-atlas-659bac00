@@ -1,0 +1,313 @@
+---
+title: Java Agent
+description: Use zero-code instrumentation with the experimental otel4s Java Agent for Cats Effect applications
+---
+
+Zero-code instrumentation in Java works by attaching a special Java agent JAR to any Java 8+ application. The agent dynamically modifies application bytecode at runtime to capture telemetry data—without requiring you to change your application code.
+
+This makes it possible to automatically collect traces, metrics, and logs from many popular libraries and frameworks.
+
+## What Gets Instrumented?
+
+Typical examples of automatic instrumentation include:
+
+- Inbound requests (e.g., HTTP servers)
+- Outbound calls (e.g., HTTP clients, gRPC)
+- Database access (e.g., JDBC, R2DBC)
+- Message queues and other integrations
+
+The agent gives you observability "for free" at the edges of your service, drastically reducing the need for manual instrumentation.
+
+## otel4s Java Agent
+
+The [otel4s-opentelemetry-java](https://github.com/iRevive/otel4s-opentelemetry-java) distribution is a variant of the official [OpenTelemetry Java agent](https://github.com/open-telemetry/opentelemetry-java-instrumentation). It provides all the same automatic instrumentation as the upstream agent, but with two important additions:
+
+- **Cats Effect instrumentation** - Fiber-based applications gain proper tracing and context propagation
+- **otel4s integration** - Keeps agent and otel4s context in sync
+
+You can see a working demo here: [otel4s-showcase](https://github.com/iRevive/otel4s-showcase).
+
+<Warning>
+The [otel4s-opentelemetry-java](https://github.com/iRevive/otel4s-opentelemetry-java) agent is **experimental**. The additional otel4s and Cats Effect instrumentation relies on non-standard techniques and may behave unpredictably in non-trivial environments.
+
+- Please read the [Limitations](#limitations) section before using it
+- Context propagation is handled through [fiber context tracking](context-propagation)
+</Warning>
+
+## Do I Need an Agent?
+
+The agent is best suited for:
+
+- **Getting started quickly** - Enable observability without writing code
+- **Standard service edges** - HTTP, databases, gRPC, messaging are automatically instrumented
+
+However, manual instrumentation with otel4s may be better when:
+
+- You need fine-grained control over spans, attributes, and metrics
+- You want to instrument domain-specific operations (e.g., business logic)
+- You're running in complex or performance-sensitive environments where bytecode manipulation could cause issues
+
+<Info>
+In practice, many teams combine both approaches:
+- Use the agent for broad, zero-effort coverage
+- Add otel4s manual instrumentation where business-level observability is needed
+</Info>
+
+## Installation
+
+The agent can be configured via the [sbt-javaagent](https://github.com/sbt/sbt-javaagent) plugin:
+
+```scala
+lazy val service = project
+  .enablePlugins(JavaAgent)                                                         // <1>
+  .in(file("service"))
+  .settings(
+    name := "service",
+    javaAgents += "io.github.irevive" % "otel4s-opentelemetry-javaagent" % "@OTEL4S_AGENT_VERSION@", // <2>
+    run / fork := true,                                                             // <3>
+    javaOptions += "-Dcats.effect.trackFiberContext=true",                          // <4>
+    libraryDependencies ++= Seq(                                                    // <5>
+      "org.typelevel"   %% "otel4s-oteljava"                           % "@VERSION@",
+      "org.typelevel"   %% "otel4s-oteljava-context-storage"           % "@VERSION@",
+      "io.opentelemetry" % "opentelemetry-exporter-otlp"               % "@OPEN_TELEMETRY_VERSION@" % Runtime,
+      "io.opentelemetry" % "opentelemetry-sdk-extension-autoconfigure" % "@OPEN_TELEMETRY_VERSION@" % Runtime
+    )
+  )
+```
+
+1. Enable JavaAgent sbt plugin
+2. Register `otel4s-opentelemetry-javaagent` as a Java agent
+3. Make sure the VM will be forked when running
+4. Enable Cats Effect fiber context tracking
+5. Add all necessary dependencies
+
+## Configuration
+
+The agent supports the full set of [official configuration options](https://opentelemetry.io/docs/zero-code/java/agent/configuration/).
+
+### Environment Variables
+
+```bash
+# Service name
+export OTEL_SERVICE_NAME=my-service
+
+# OTLP endpoint
+export OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4317
+
+# Resource attributes
+export OTEL_RESOURCE_ATTRIBUTES="deployment.environment=production,service.version=1.0.0"
+
+# Sampling
+export OTEL_TRACES_SAMPLER=parentbased_traceidratio
+export OTEL_TRACES_SAMPLER_ARG=0.1
+```
+
+### Disabling Instrumentation
+
+You can disable or suppress specific instrumentation if certain libraries or frameworks should not be traced. See [Disabling Instrumentation](https://opentelemetry.io/docs/zero-code/java/agent/disable/) for details.
+
+This is especially useful when:
+
+- A library is already manually instrumented with otel4s
+- Automatic instrumentation causes performance or compatibility issues
+- You want to reduce telemetry volume from noisy dependencies
+
+```bash
+# Disable specific instrumentation
+export OTEL_INSTRUMENTATION_HTTP_CLIENT_ENABLED=false
+export OTEL_INSTRUMENTATION_JDBC_ENABLED=false
+
+# Disable all except specific ones
+export OTEL_INSTRUMENTATION_COMMON_DEFAULT_ENABLED=false
+export OTEL_INSTRUMENTATION_HTTP_SERVER_ENABLED=true
+```
+
+## Application Setup
+
+The application must be configured to use the agent-provided context:
+
+```scala
+import cats.effect.{IO, IOApp, Resource} 
+import org.typelevel.otel4s.context.LocalProvider
+import org.typelevel.otel4s.metrics.Meter
+import org.typelevel.otel4s.oteljava.OtelJava
+import org.typelevel.otel4s.oteljava.context.Context
+import org.typelevel.otel4s.oteljava.context.IOLocalContextStorage
+import org.typelevel.otel4s.trace.Tracer
+
+object Server extends IOApp.Simple {
+  def run: IO[Unit] = {
+    implicit val localProvider: LocalProvider[IO, Context] = 
+      IOLocalContextStorage.localProvider[IO]                      // <1>
+
+    for {
+      otel4s <- Resource.eval(OtelJava.global[IO])                 // <2>
+      meter  <- Resource.eval(otel4s.meterProvider.get("service"))
+      tracer <- Resource.eval(otel4s.tracerProvider.get("service"))
+      _      <- startApp(meter, tracer)
+    } yield ()
+  }.useForever
+  
+  private def startApp(
+    meter: Meter[IO], 
+    tracer: Tracer[IO]
+  ): Resource[IO, Unit] = {
+    val _ = (meter, tracer)
+    Resource.unit
+  }
+}
+```
+
+1. `IOLocalContextStorage.localProvider` - Automatically picks up agent's context when available
+2. `OtelJava.global[IO]` - You must use the **global** instance because the agent will autoconfigure it
+
+<Note>
+You **must** use `OtelJava.global[IO]` instead of `OtelJava.autoConfigured[IO]()` when using the agent.
+</Note>
+
+### Verification
+
+If everything is configured correctly, you'll see these log messages on startup:
+
+```
+[otel.javaagent 2025-07-27 09:37:18:069 +0300] [main] INFO io.opentelemetry.javaagent.tooling.VersionLogger - opentelemetry-javaagent - version: otel4s-0.0.2-otel-2.18.1
+IOLocalContextStorage: agent-provided IOLocal is detected
+```
+
+## How It Works
+
+Cats Effect has its context propagation mechanism known as [IOLocal](https://typelevel.org/cats-effect/docs/core/io-local). The [3.6.0](https://github.com/typelevel/cats-effect/releases/tag/v3.6.0) release provides a way to represent IOLocal as a ThreadLocal, which creates an opportunity to manipulate the context from the outside.
+
+The agent's instrumentation works as follows:
+
+1. **IORuntime Instrumentation** - Agent instruments the constructor of `IORuntime` and stores a `ThreadLocal` representation of the `IOLocal[Context]` in the **bootstrap** classloader, so the agent and application both access the same instance
+
+2. **Custom ContextStorage** - Instrumentation installs a custom `ContextStorage` wrapper that uses `FiberLocalContextHelper` to retrieve the fiber's current context (if available)
+
+3. **IOFiber Instrumentation** - Agent instruments `IOFiber`'s constructor and starts the fiber with the currently available context
+
+This approach enables:
+
+- Automatic context propagation across fiber boundaries
+- Synchronization between Java SDK ThreadLocal and Cats Effect IOLocal
+- Compatibility with existing Java instrumentation libraries
+
+## Complete Example
+
+```scala
+import cats.effect.{IO, IOApp, Resource}
+import cats.syntax.all._
+import org.http4s.{HttpRoutes, Response}
+import org.http4s.dsl.io._
+import org.http4s.ember.server.EmberServerBuilder
+import org.http4s.server.Server
+import org.typelevel.otel4s.context.LocalProvider
+import org.typelevel.otel4s.oteljava.OtelJava
+import org.typelevel.otel4s.oteljava.context.{Context, IOLocalContextStorage}
+import org.typelevel.otel4s.trace.Tracer
+import com.comcast.ip4s._
+
+object HttpServer extends IOApp.Simple {
+  
+  def run: IO[Unit] = {
+    implicit val localProvider: LocalProvider[IO, Context] =
+      IOLocalContextStorage.localProvider[IO]
+    
+    resources.use { case (server, tracer) =>
+      IO.println(s"Server started at ${server.address}") >>
+        IO.never
+    }
+  }
+  
+  def resources: Resource[IO, (Server, Tracer[IO])] =
+    for {
+      otel4s <- Resource.eval(OtelJava.global[IO])
+      tracer <- Resource.eval(otel4s.tracerProvider.get("http-server"))
+      server <- EmberServerBuilder
+        .default[IO]
+        .withHost(host"0.0.0.0")
+        .withPort(port"8080")
+        .withHttpApp(routes(tracer).orNotFound)
+        .build
+    } yield (server, tracer)
+  
+  def routes(implicit tracer: Tracer[IO]): HttpRoutes[IO] =
+    HttpRoutes.of[IO] {
+      case GET -> Root / "hello" / name =>
+        // Agent automatically creates a span for this HTTP request
+        // Manual instrumentation for business logic
+        tracer.span("greet").use { _ =>
+          Ok(s"Hello, $name!")
+        }
+    }
+}
+```
+
+## Limitations
+
+### Single Application Per JVM
+
+The agent's context sharing mechanism assumes a single application per JVM. If you deploy multiple WAR files into the same Tomcat instance, both applications will attempt to configure the agent's shared bootstrap context, leading to conflicts and unpredictable behavior.
+
+See [opentelemetry-java-instrumentation#13576](https://github.com/open-telemetry/opentelemetry-java-instrumentation/pull/13576) for more information.
+
+### Experimental Status
+
+The Cats Effect and otel4s instrumentation uses advanced bytecode manipulation techniques that may not work in all environments. Thoroughly test in your specific deployment scenario before using in production.
+
+### Performance Overhead
+
+Bytecode instrumentation adds runtime overhead. While generally minimal, the impact depends on:
+
+- Number of instrumented libraries
+- Volume of instrumented operations
+- Sampling configuration
+
+Monitor application performance when enabling the agent.
+
+## Troubleshooting
+
+### Enable Debug Logging
+
+```bash
+export OTEL_JAVAAGENT_DEBUG=true
+```
+
+### Context Not Propagating
+
+Ensure fiber context tracking is enabled:
+
+```scala
+javaOptions += "-Dcats.effect.trackFiberContext=true"
+```
+
+Verify the log message appears:
+
+```
+IOLocalContextStorage: agent-provided IOLocal is detected
+```
+
+### Agent Not Loading
+
+Check that:
+
+1. `JavaAgent` plugin is enabled
+2. `run / fork := true` is set
+3. The agent JAR is in your classpath
+
+Run with `-verbose:class` to see loaded classes:
+
+```bash
+sbt "run -verbose:class" | grep otel4s
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Context Propagation" icon="shuffle" href="context-propagation">
+    Learn how context propagation works
+  </Card>
+  <Card title="Configuration" icon="gear" href="configuration">
+    Configure the agent and SDK
+  </Card>
+</CardGroup>

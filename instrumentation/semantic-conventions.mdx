@@ -1,0 +1,270 @@
+---
+title: Semantic Conventions
+description: Learn how to use standardized attribute and metric names with otel4s semantic conventions
+---
+
+Semantic conventions standardize attribute and metric names across instrumentation so telemetry is comparable across libraries and services. The `semconv` modules provide generated, typesafe attribute keys and metric specs that match the [OpenTelemetry semantic conventions](https://opentelemetry.io/docs/specs/semconv/) specification.
+
+## Modules Overview
+
+Otel4s provides four semantic convention modules:
+
+| Module                                | Stability  | Package prefix                                         |
+|:--------------------------------------|:-----------|:-------------------------------------------------------|
+| `otel4s-semconv`                      | Stable     | `org.typelevel.otel4s.semconv.attributes`              |
+| `otel4s-semconv-metrics`              | Stable     | `org.typelevel.otel4s.semconv.metrics`                 |
+| `otel4s-semconv-experimental`         | Incubating | `org.typelevel.otel4s.semconv.experimental.attributes` |
+| `otel4s-semconv-metrics-experimental` | Incubating | `org.typelevel.otel4s.semconv.experimental.metrics`    |
+
+<Note>
+  Stable modules track the stable spec, while experimental modules track incubating conventions. Use stable modules by default.
+</Note>
+
+<Warning>
+  The `*-experimental` modules have no binary-compatibility guarantees between releases and may introduce binary breaking changes at any time.
+</Warning>
+
+## Getting Started
+
+Add the semantic convention modules to your project:
+
+<Tabs>
+  <Tab title="sbt">
+    ```scala
+    libraryDependencies ++= Seq(
+      "org.typelevel" %% "otel4s-semconv"         % "@VERSION@", // stable attributes
+      "org.typelevel" %% "otel4s-semconv-metrics" % "@VERSION@", // stable metric specs
+    )
+    ```
+  </Tab>
+  <Tab title="Scala CLI">
+    ```scala
+    //> using dep "org.typelevel::otel4s-semconv:@VERSION@"         // stable attributes
+    //> using dep "org.typelevel::otel4s-semconv-metrics:@VERSION@" // stable metric specs
+    ```
+  </Tab>
+</Tabs>
+
+If you need incubating conventions, add the `-experimental` variants instead of the stable ones.
+
+## Using Semantic Attribute Keys
+
+The generated attribute keys are typesafe and can be used to build an attribute.
+
+```scala
+import org.typelevel.otel4s.Attributes
+import org.typelevel.otel4s.semconv.attributes.{ExceptionAttributes, HttpAttributes}
+
+val attrs = Attributes(
+  HttpAttributes.HttpRequestMethod("GET"),
+  HttpAttributes.HttpResponseStatusCode(200),
+  ExceptionAttributes.ExceptionType("java.lang.RuntimeException")
+)
+```
+
+The same keys work for spans, log records, or metric attributes because they are plain `AttributeKey[A]` values.
+
+### Common Attribute Categories
+
+Semantic conventions are organized by domain:
+
+<Tabs>
+  <Tab title="HTTP">
+    ```scala
+    import org.typelevel.otel4s.semconv.attributes.HttpAttributes
+
+    val httpAttrs = Attributes(
+      HttpAttributes.HttpRequestMethod("POST"),
+      HttpAttributes.HttpResponseStatusCode(201),
+      HttpAttributes.HttpRoute("/api/users"),
+      HttpAttributes.UrlFull("https://api.example.com/users")
+    )
+    ```
+  </Tab>
+  <Tab title="Database">
+    ```scala
+    import org.typelevel.otel4s.semconv.attributes.DbAttributes
+
+    val dbAttrs = Attributes(
+      DbAttributes.DbSystem("postgresql"),
+      DbAttributes.DbName("mydb"),
+      DbAttributes.DbStatement("SELECT * FROM users WHERE id = ?"),
+      DbAttributes.DbOperation("SELECT")
+    )
+    ```
+  </Tab>
+  <Tab title="Exception">
+    ```scala
+    import org.typelevel.otel4s.semconv.attributes.ExceptionAttributes
+
+    val exceptionAttrs = Attributes(
+      ExceptionAttributes.ExceptionType("java.sql.SQLException"),
+      ExceptionAttributes.ExceptionMessage("Connection timeout"),
+      ExceptionAttributes.ExceptionStacktrace(exception.getStackTrace.mkString("\n"))
+    )
+    ```
+  </Tab>
+  <Tab title="Code">
+    ```scala
+    import org.typelevel.otel4s.semconv.attributes.CodeAttributes
+
+    val codeAttrs = Attributes(
+      CodeAttributes.CodeFunction("processRequest"),
+      CodeAttributes.CodeFilePath("/app/src/Main.scala"),
+      CodeAttributes.CodeLineNumber(42L)
+    )
+    ```
+  </Tab>
+</Tabs>
+
+## Using Semantic Metric Specs
+
+Semantic metric specs provide the canonical metric name, unit, description, and attribute expectations.
+
+### Method 1: Manual Creation
+
+```scala
+import org.typelevel.otel4s.metrics.{BucketBoundaries, Histogram, Meter}
+import org.typelevel.otel4s.semconv.metrics.HttpMetrics
+
+def createHttpClientDuration[F[_]: Meter](
+  boundaries: BucketBoundaries
+): F[Histogram[F, Double]] =
+  Meter[F]
+    .histogram[Double](HttpMetrics.ClientRequestDuration.name)
+    .withUnit(HttpMetrics.ClientRequestDuration.unit)
+    .withDescription(HttpMetrics.ClientRequestDuration.description)
+    .withExplicitBucketBoundaries(boundaries)
+    .create
+```
+
+### Method 2: Using the Convenience Method
+
+For convenience, every metric also has the generated `create` method that creates an instrument with the spec's name, unit, and description:
+
+```scala
+import org.typelevel.otel4s.metrics.{BucketBoundaries, Histogram, Meter}
+import org.typelevel.otel4s.semconv.metrics.HttpMetrics
+
+def createHttpClientDuration[F[_]: Meter](
+  boundaries: BucketBoundaries
+): F[Histogram[F, Double]] =
+  HttpMetrics.ClientRequestDuration.create[F, Double](boundaries)
+```
+
+## Validating Metrics in Tests
+
+Metric specs are also useful for validating exported metrics. The example below checks that expected server metrics exist and that each exported metric matches the semantic name, unit, description, and required attributes.
+
+```scala
+import cats.effect.IO
+import org.typelevel.otel4s.metrics.Meter
+import org.typelevel.otel4s.semconv.MetricSpec
+import org.typelevel.otel4s.semconv.metrics.HttpMetrics
+import org.typelevel.otel4s.semconv.Requirement
+import org.typelevel.otel4s.oteljava.testkit.metrics.MetricsTestkit
+import org.typelevel.otel4s.oteljava.testkit.metrics.data.Metric
+
+def semanticTest(scenario: Meter[IO] => IO[Unit]): IO[Unit] = {
+  // the set of metrics to check
+  val specs = List(
+    HttpMetrics.ServerRequestDuration
+  )
+
+  MetricsTestkit.inMemory[IO]().use { testkit =>
+    testkit.meterProvider.get("meter").flatMap { meter =>
+      for {
+        // run a scenario to generate metrics 
+        _       <- scenario(meter)
+        // collect metrics
+        metrics <- testkit.collectMetrics[Metric]
+        // ensure the expected metrics exist and match the spec
+      } yield specs.foreach(spec => specTest(metrics, spec))
+    }
+  }
+}
+
+def specTest(metrics: List[Metric], spec: MetricSpec): Unit = {
+  val metric = metrics.find(_.name == spec.name)
+  assert(
+    metric.isDefined,
+    s"${spec.name} metric is missing. Available [${metrics.map(_.name).mkString(", ")}]",
+  )
+
+  val clue = s"[${spec.name}] has a mismatched property"
+
+  metric.foreach { md =>
+    assert(md.name == spec.name, clue)
+    assert(md.description == Some(spec.description), clue)
+    assert(md.unit == Some(spec.unit), clue)
+
+    val required = spec.attributeSpecs
+      .filter(_.requirement.level == Requirement.Level.Required)
+      .map(_.key)
+      .toSet
+
+    val current = md.data.points.toVector
+      .flatMap(_.attributes.map(_.key))
+      .filter(key => required.contains(key))
+      .toSet
+
+    assert(current == required, clue)
+  }
+}
+```
+
+## Best Practices
+
+<Steps>
+  <Step title="Prefer stable conventions">
+    Use stable modules (`otel4s-semconv` and `otel4s-semconv-metrics`) by default. Only use experimental modules when you need incubating conventions.
+  </Step>
+  <Step title="Use typesafe attributes">
+    Always use the generated attribute keys instead of raw strings to ensure type safety and consistency.
+  </Step>
+  <Step title="Follow naming conventions">
+    Stick to the OpenTelemetry semantic conventions for attribute and metric names to ensure compatibility across services.
+  </Step>
+  <Step title="Validate in tests">
+    Use metric specs in your tests to ensure your instrumentation follows the conventions correctly.
+  </Step>
+  <Step title="Document custom attributes">
+    If you need custom attributes not covered by semantic conventions, document them clearly in your codebase.
+  </Step>
+</Steps>
+
+## Common Patterns
+
+### Combining Semantic and Custom Attributes
+
+```scala
+import org.typelevel.otel4s.Attributes
+import org.typelevel.otel4s.semconv.attributes.HttpAttributes
+
+val combinedAttrs = Attributes(
+  HttpAttributes.HttpRequestMethod("GET"),
+  HttpAttributes.HttpResponseStatusCode(200),
+  // Custom application-specific attribute
+  Attribute("app.tenant_id", "tenant-123"),
+  Attribute("app.feature_flag", "beta-enabled")
+)
+```
+
+### Using Semantic Conventions with Spans
+
+```scala
+import org.typelevel.otel4s.trace.Tracer
+import org.typelevel.otel4s.semconv.attributes.HttpAttributes
+
+def handleHttpRequest[F[_]: Tracer](method: String, statusCode: Int): F[Unit] =
+  Tracer[F]
+    .span(
+      "http.request",
+      HttpAttributes.HttpRequestMethod(method),
+      HttpAttributes.HttpResponseStatusCode(statusCode)
+    )
+    .use { span =>
+      // Your request handling logic
+      ???
+    }
+```

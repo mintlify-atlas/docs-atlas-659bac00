@@ -1,0 +1,208 @@
+---
+title: SpanBuilder
+description: Builder for creating and configuring Span instances with various attributes and options
+---
+
+`SpanBuilder[F[_]]` is a builder interface for creating and configuring `Span` instances. It provides a fluent API for setting span attributes, links, parent relationships, and other span properties.
+
+## Overview
+
+The `SpanBuilder` allows you to configure all aspects of a span before creating it. The builder uses an internal state that can be modified through various methods.
+
+## Properties
+
+### meta
+
+**Type:** `InstrumentMeta[F]`
+
+The instrument's metadata. Indicates whether instrumentation is enabled.
+
+## Methods
+
+### modifyState
+
+<ParamField path="f" type="State => State" required>
+  The modification function to apply to the current state
+</ParamField>
+
+**Returns:** `SpanBuilder[F]`
+
+Modifies the internal state using the provided function and returns the modified builder.
+
+### root
+
+**Returns:** `SpanBuilder[F]`
+
+Indicates that the span should be the root span and the scope parent should be ignored. This is equivalent to calling `modifyState(_.withParent(SpanBuilder.Parent.Root))`.
+
+```scala
+val rootSpan = spanBuilder.root.build
+```
+
+### build
+
+**Returns:** `SpanOps[F]`
+
+Creates `SpanOps` using the current state of the builder. This is the final step that produces the actual span operations.
+
+```scala
+val spanOps: SpanOps[F] = spanBuilder.build
+```
+
+### liftTo
+
+<ParamField path="G[_]" type="Type Parameter" required>
+  The target effect type with a `MonadCancelThrow` instance
+</ParamField>
+
+**Returns:** `SpanBuilder[G]`
+
+Modifies the context `F` using an implicit `KindTransformer` from `F` to `G`.
+
+**Requirements:**
+- Implicit `MonadCancelThrow[F]`
+- Implicit `MonadCancelThrow[G]`
+- Implicit `KindTransformer[F, G]`
+
+## Parent Selection
+
+The `SpanBuilder.Parent` sealed trait defines the parent selection strategy:
+
+### Parent.propagate
+
+**Returns:** `Parent`
+
+Use the span context that is currently available in the scope as a parent (if any).
+
+### Parent.root
+
+**Returns:** `Parent`
+
+Indicates the span must be the root span.
+
+### Parent.explicit
+
+<ParamField path="parent" type="SpanContext" required>
+  The parent span context to use
+</ParamField>
+
+**Returns:** `Parent`
+
+Use the given parent span context as an explicit parent.
+
+## State
+
+The `SpanBuilder.State` sealed trait represents the internal state of the builder.
+
+### State Properties
+
+- `attributes: Attributes` - The attributes added to the state
+- `links: Vector[(SpanContext, Attributes)]` - The links added to the state
+- `parent: Parent` - The parent selection strategy
+- `finalizationStrategy: SpanFinalizer.Strategy` - The selected finalization strategy
+- `spanKind: Option[SpanKind]` - The selected span kind
+- `startTimestamp: Option[FiniteDuration]` - The explicit start timestamp
+
+### State Methods
+
+#### addAttribute
+
+<ParamField path="attribute" type="Attribute[A]" required>
+  The attribute to add to the state
+</ParamField>
+
+**Returns:** `State`
+
+Adds the given attribute to the state. If the state previously contained a mapping for the key, the old value is replaced.
+
+#### addAttributes
+
+<ParamField path="attributes" type="immutable.Iterable[Attribute[_]]" required>
+  The set of attributes to add
+</ParamField>
+
+**Returns:** `State`
+
+Adds multiple attributes to the state. If the state previously contained a mapping for any of the keys, the old values are replaced.
+
+#### addLink
+
+<ParamField path="spanContext" type="SpanContext" required>
+  The context of the linked span
+</ParamField>
+
+<ParamField path="attributes" type="immutable.Iterable[Attribute[_]]" required>
+  The set of attributes to associate with the link
+</ParamField>
+
+**Returns:** `State`
+
+Adds a link to another span context with associated attributes.
+
+#### withFinalizationStrategy
+
+<ParamField path="strategy" type="SpanFinalizer.Strategy" required>
+  The finalization strategy to use
+</ParamField>
+
+**Returns:** `State`
+
+Sets the finalization strategy for the span.
+
+#### withSpanKind
+
+<ParamField path="spanKind" type="SpanKind" required>
+  The kind of span to create
+</ParamField>
+
+**Returns:** `State`
+
+Sets the `SpanKind` for the span.
+
+#### withStartTimestamp
+
+<ParamField path="timestamp" type="FiniteDuration" required>
+  The explicit start timestamp from the epoch
+</ParamField>
+
+**Returns:** `State`
+
+Sets an explicit start timestamp. The timestamp should be based on `Clock[F].realTime`. Using `Clock[F].monotonic` may lead to a missing span.
+
+#### withParent
+
+<ParamField path="parent" type="Parent" required>
+  The parent selection strategy to use
+</ParamField>
+
+**Returns:** `State`
+
+Sets the parent to use for the span.
+
+## Companion Object
+
+### State.init
+
+**Returns:** `State`
+
+Creates an initial state with default values:
+- Empty attributes
+- No links
+- `SpanFinalizer.Strategy.reportAbnormal` finalization strategy
+- No span kind
+- No start timestamp
+- `Parent.Propagate` parent strategy
+
+### noop
+
+<ParamField path="back" type="Span.Backend[F]" required>
+  The backend to use for the no-op span
+</ParamField>
+
+<ParamField path="F[_]" type="Type Parameter" required>
+  The effect type with an `Applicative` instance
+</ParamField>
+
+**Returns:** `SpanBuilder[F]`
+
+Creates a no-op implementation of the `SpanBuilder` that produces no-op spans.

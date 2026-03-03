@@ -1,0 +1,148 @@
+---
+title: Histogram
+description: Instrument for recording distributions of measurements
+---
+
+A `Histogram` instrument that records values of type `A`.
+
+Histogram metric data points convey a population of recorded measurements in a compressed format. A histogram bundles a set of events into divided populations with an overall event count and aggregate sum for all events.
+
+## Type Signature
+
+```scala
+trait Histogram[F[_], A]
+```
+
+**Type Parameters:**
+- `F[_]` - the higher-kinded type of a polymorphic effect
+- `A` - the type of values to record. Must have a `MeasurementValue` instance. `Long` and `Double` are supported out of the box.
+
+## Creating a Histogram
+
+Histograms are created using the `Meter` API:
+
+```scala
+val meter: Meter[IO] = ???
+
+val histogram: IO[Histogram[IO, Double]] =
+  meter.histogram[Double]("http.server.duration")
+    .withUnit("ms")
+    .withDescription("HTTP server request duration")
+    .withExplicitBucketBoundaries(BucketBoundaries(Vector(10, 50, 100, 500, 1000)))
+    .create
+```
+
+## Backend Methods
+
+### record
+
+Records a value with a set of attributes.
+
+<ParamField path="value" type="A" required>
+  The value to record.
+</ParamField>
+
+<ParamField path="attributes" type="immutable.Iterable[Attribute[_]]" required>
+  The set of attributes to associate with the value.
+</ParamField>
+
+**Returns:** `F[Unit]`
+
+**Example:**
+```scala
+histogram.flatMap { h =>
+  h.record(
+    156.0,
+    Attribute(AttributeKey.string("http.method"), "GET"),
+    Attribute(AttributeKey.long("http.status_code"), 200L)
+  )
+}
+```
+
+### recordDuration
+
+Records the duration of a given effect.
+
+<ParamField path="timeUnit" type="TimeUnit" required>
+  The time unit of the duration measurement.
+</ParamField>
+
+<ParamField path="attributes" type="Resource.ExitCase => immutable.Iterable[Attribute[_]]" required>
+  A function to build the set of attributes based on the exit case.
+</ParamField>
+
+**Returns:** `Resource[F, Unit]`
+
+**Example:**
+```scala
+val histogram: Histogram[IO, Double] = ???
+val attributeKey = AttributeKey.string("query_name")
+
+def findUser(name: String) =
+  histogram.recordDuration(
+    TimeUnit.MILLISECONDS,
+    _ => List(Attribute(attributeKey, "find_user"))
+  ).use { _ =>
+    db.findUser(name)
+  }
+```
+
+## Builder Methods
+
+### withUnit
+
+Sets the unit of measure for this histogram.
+
+<ParamField path="unit" type="String" required>
+  The measurement unit. Must be 63 or fewer ASCII characters.
+</ParamField>
+
+**Returns:** `Histogram.Builder[F, A]`
+
+**Reference:** [Instrument Unit](https://github.com/open-telemetry/opentelemetry-specification/blob/main/specification/metrics/api.md#instrument-unit)
+
+### withDescription
+
+Sets the description for this histogram.
+
+<ParamField path="description" type="String" required>
+  The description of the histogram.
+</ParamField>
+
+**Returns:** `Histogram.Builder[F, A]`
+
+**Reference:** [Instrument Description](https://github.com/open-telemetry/opentelemetry-specification/blob/main/specification/metrics/api.md#instrument-description)
+
+### withExplicitBucketBoundaries
+
+Sets the explicit bucket boundaries for this histogram.
+
+<ParamField path="boundaries" type="BucketBoundaries" required>
+  The bucket boundaries to use for the histogram.
+</ParamField>
+
+**Returns:** `Histogram.Builder[F, A]`
+
+**Reference:** [Explicit Bucket Boundaries](https://github.com/open-telemetry/opentelemetry-specification/blob/main/specification/metrics/api.md#instrument-advisory-parameter-explicitbucketboundaries)
+
+### create
+
+Creates a `Histogram` with the configured unit, description, and bucket boundaries.
+
+**Returns:** `F[Histogram[F, A]]`
+
+## Helper Methods
+
+### causeAttributes
+
+Utility function to extract cause attributes from a `Resource.ExitCase`.
+
+**Type Signature:**
+```scala
+def causeAttributes(ec: Resource.ExitCase): List[Attribute[String]]
+```
+
+**Returns:**
+- Empty list for `ExitCase.Succeeded`
+- `Attribute("cause", className)` for `ExitCase.Errored`
+- `Attribute("cause", "canceled")` for `ExitCase.Canceled`

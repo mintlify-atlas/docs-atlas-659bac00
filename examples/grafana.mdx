@@ -1,0 +1,216 @@
+---
+title: "Grafana All-in-One"
+description: "Visualize metrics and traces with Prometheus, Jaeger, and Grafana"
+---
+
+In this example, we'll use [Prometheus](https://prometheus.io/) for metrics and [Jaeger](https://jaegertracing.io/) for traces, both visualized in [Grafana](https://grafana.com/grafana/). We'll set up an [OpenTelemetry Collector](https://opentelemetry.io/docs/collector/) to gather both metrics and traces.
+
+## Project Setup
+
+Configure your project with the required dependencies:
+
+<CodeGroup>
+
+```scala sbt
+// Add to build.sbt
+libraryDependencies ++= Seq(
+  "org.typelevel" %% "otel4s-oteljava" % "@VERSION@",
+  "io.opentelemetry" % "opentelemetry-exporter-otlp" % "@OPEN_TELEMETRY_VERSION@" % Runtime,
+  "io.opentelemetry" % "opentelemetry-sdk-extension-autoconfigure" % "@OPEN_TELEMETRY_VERSION@" % Runtime
+)
+
+run / fork := true
+javaOptions += "-Dotel.java.global-autoconfigure.enabled=true"
+javaOptions += "-Dotel.service.name=grafana-example"
+javaOptions += "-Dotel.exporter.otlp.endpoint=http://localhost:4317"
+```
+
+```scala scala-cli
+// Add to grafana.scala
+//> using scala 3.3.0
+//> using dep "org.typelevel::otel4s-oteljava:@VERSION@"
+//> using dep "io.opentelemetry:opentelemetry-exporter-otlp:@OPEN_TELEMETRY_VERSION@"
+//> using dep "io.opentelemetry:opentelemetry-sdk-extension-autoconfigure:@OPEN_TELEMETRY_VERSION@"
+//> using javaOpt "-Dotel.java.global-autoconfigure.enabled=true"
+//> using javaOpt "-Dotel.service.name=grafana-example"
+//> using javaOpt "-Dotel.exporter.otlp.endpoint=http://localhost:4317"
+```
+
+</CodeGroup>
+
+<Note>
+  Unlike the Jaeger example, we're exporting metrics here since Prometheus will collect them.
+</Note>
+
+## OpenTelemetry SDK Configuration
+
+The OpenTelemetry SDK can be configured via system properties or environment variables. See the full list of [environment variable configurations](https://opentelemetry.io/docs/languages/java/configuration) for more options.
+
+## Observability Stack Setup
+
+Use the Grafana LGTM (Loki, Grafana, Tempo, Mimir) stack with Docker Compose:
+
+```yaml docker-compose.yaml
+version: '3.7'
+services:
+  otel-lgtm:
+    image: grafana/otel-lgtm
+    ports:
+      - "3000:3000"
+      - "4317:4317"
+      - "4318:4318"
+    networks:
+      - static-network
+
+networks:
+  static-network:
+```
+
+Start the stack:
+
+```bash
+docker-compose up -d
+```
+
+**Port mappings:**
+- `3000` - Grafana UI
+- `4317` - OpenTelemetry gRPC receiver
+- `4318` - OpenTelemetry HTTP receiver
+
+## Application Example
+
+This example simulates an API that returns apples or bananas, measuring the fruit distribution with metrics and API latency with traces:
+
+```scala
+import cats.effect.{Async, IO, IOApp}
+import cats.effect.std.Random
+import cats.syntax.apply._
+import cats.syntax.flatMap._
+import cats.syntax.functor._
+import org.typelevel.otel4s.Attribute
+import org.typelevel.otel4s.oteljava.OtelJava
+import org.typelevel.otel4s.metrics.Meter
+import org.typelevel.otel4s.trace.Tracer
+import java.util.concurrent.TimeUnit
+import scala.concurrent.duration.FiniteDuration
+
+case class ApiData(result: String)
+
+trait ApiService[F[_]] {
+  def getDataFromSomeAPI: F[ApiData]
+}
+
+object ApiService {
+  def apply[F[_]: Async: Tracer: Meter: Random](
+      minLatency: Int,
+      maxLatency: Int,
+      bananaPercentage: Int
+  ): F[ApiService[F]] = 
+    Meter[F]
+      .counter[Long]("RemoteApi.fruit.count")
+      .withDescription("Number of fruits returned by the API.")
+      .create
+      .map { remoteApiFruitCount =>
+        new ApiService[F] {
+          override def getDataFromSomeAPI: F[ApiData] = for {
+            latency <- Random[F].betweenInt(minLatency, maxLatency)
+            isBanana <- Random[F].betweenInt(0, 100).map(_ <= bananaPercentage)
+            duration = FiniteDuration(latency, TimeUnit.MILLISECONDS)
+            fruit <- Tracer[F].span("remoteAPI.com/fruit").surround(
+              Async[F].sleep(duration) *>
+                Async[F].pure(if (isBanana) "banana" else "apple")
+            )
+            _ <- remoteApiFruitCount.inc(Attribute("fruit", fruit))
+          } yield ApiData(s"Api returned a $fruit !")
+        }
+      }
+}
+
+object ExampleService extends IOApp.Simple {
+  def run: IO[Unit] =
+    OtelJava.autoConfigured[IO]()
+      .evalMap { otel4s =>
+        (
+          otel4s.tracerProvider.get("com.service.runtime"),
+          otel4s.meterProvider.get("com.service.runtime"),
+          Random.scalaUtilRandom[IO]
+        ).flatMapN { case components =>
+          implicit val (tracer: Tracer[IO], meter: Meter[IO], random: Random[IO]) = 
+            components
+
+          for {
+            service <- ApiService[IO](
+              minLatency = 40, 
+              maxLatency = 80, 
+              bananaPercentage = 70
+            )
+            data <- service.getDataFromSomeAPI
+            _ <- IO.println(s"Service data: $data")
+          } yield ()
+        }
+      }
+      .use_
+}
+```
+
+## Running the Application
+
+<CodeGroup>
+
+```bash sbt
+sbt run
+```
+
+```bash scala-cli
+scala-cli run grafana.scala
+```
+
+</CodeGroup>
+
+## Setting Up Grafana Dashboards
+
+<Steps>
+
+### Access Grafana
+
+Navigate to [http://localhost:3000](http://localhost:3000).
+
+### Add Data Sources
+
+Configure Jaeger and Prometheus as data sources in Grafana.
+
+### Create Metrics Dashboard
+
+Import or create a dashboard to visualize:
+- Fruit count metrics by type (apple vs banana)
+- Rate of API calls
+- Distribution of returned fruits
+
+### Create Traces Dashboard
+
+Add visualizations for:
+- API latency over time
+- Trace waterfall views
+- Span duration histograms
+
+</Steps>
+
+## What You'll See
+
+### Metrics Dashboard
+
+You'll see:
+- A counter showing how many apples vs bananas were returned
+- Time-series graphs of API calls
+- Distribution percentages
+
+### Traces Dashboard
+
+You'll see:
+- Individual trace timelines for each API call
+- Latency measurements between 40-80ms
+- Span details showing the fruit type returned
+
+<Note>
+  A complete working example with dashboard JSON is available at [github.com/keuhdall/otel4s-grafana-example](https://github.com/keuhdall/otel4s-grafana-example/)
+</Note>

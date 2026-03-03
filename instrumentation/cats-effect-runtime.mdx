@@ -1,0 +1,303 @@
+---
+title: Cats Effect Runtime Metrics
+description: Monitor and instrument Cats Effect IO runtime with OpenTelemetry metrics
+---
+
+The Cats Effect runtime metrics module provides comprehensive observability into the internal workings of your Cats Effect application, including thread pool performance, fiber scheduling, and CPU starvation detection.
+
+## Available Metrics
+
+The metrics are organized into several categories based on platform support and metric type.
+
+### CPU Starvation
+
+**Platforms**: JVM, Scala.js, Scala Native.
+
+These metrics could help identify performance bottlenecks caused by an overloaded compute pool, excessive task scheduling, or lack of CPU resources.
+
+| Name | Description | Unit |
+|------|-------------|------|
+| cats_effect.runtime.cpu_starvation.count | CPU starvation count | {starvation} |
+| cats_effect.runtime.cpu_starvation.clock_drift.current | CPU starvation current clock drift | ms |
+| cats_effect.runtime.cpu_starvation.clock_drift.max | CPU starvation max clock drift | ms |
+
+### Work-Stealing Thread Pool - Compute
+
+**Platforms**: JVM.
+
+**Built-in attributes**:
+* `pool.id` - the id of the work-stealing thread pool
+
+These metrics provide insights about fibers and threads within the compute pool. They help diagnose load distribution, identify bottlenecks, and monitor the pool's efficiency in handling tasks.
+
+| Name | Description | Unit |
+|------|-------------|------|
+| cats_effect.runtime.wstp.compute.fiber.enqueued_count.total | Compute pool total enqueued fiber count | {fiber} |
+| cats_effect.runtime.wstp.compute.fiber.active_count.current | Compute pool current active fiber count | {fiber} |
+| cats_effect.runtime.wstp.compute.fiber.suspended_count.current | Compute pool current suspended fiber count | {fiber} |
+| cats_effect.runtime.wstp.compute.thread.worker_count.current | Compute pool current worker thread count | {thread} |
+| cats_effect.runtime.wstp.compute.thread.searcher_count.current | Compute pool current searcher thread count | {thread} |
+| cats_effect.runtime.wstp.compute.thread.blocked_count.current | Compute pool current blocked worker thread count | {thread} |
+
+### Work-Stealing Thread Pool - Thread
+
+**Platforms**: JVM.
+
+**Built-in attributes**:
+* `pool.id` - the id of the work-stealing thread pool the worker is used by
+* `worker.index` - the index of the worker thread
+* `thread.event` - the thread event:
+    * `parked` - a thread is parked
+    * `polled` - a thread is polled for I/O events
+    * `blocked` - a thread is switched to a blocking thread and been replaced
+    * `respawn` - a thread is replaced by a newly spawned thread
+
+These metrics provide detailed information about threads state within the compute pool.
+
+| Name | Description | Unit |
+|------|-------------|------|
+| cats_effect.runtime.wstp.thread.event.count | Worker thread event count | {event} |
+
+### Work-Stealing Thread Pool - Local Queue
+
+**Platforms**: JVM.
+
+**Built-in attributes**:
+* `pool.id` - the id of the work-stealing thread pool the queue is used by
+* `worker.index` - the index of the worker thread the queue is used by
+
+These metrics provide a detailed view of fiber distribution within the pool. They help diagnose load imbalances and system inefficiency.
+
+| Name | Description | Unit |
+|------|-------------|------|
+| cats_effect.runtime.wstp.local_queue.fiber.total_count | Local queue total fiber count | {fiber} |
+| cats_effect.runtime.wstp.local_queue.fiber.total_spill_count | Local queue total fiber spill count | {fiber} |
+| cats_effect.runtime.wstp.local_queue.fiber.total_spill_count.successful | Local queue total successful fiber spill count | {fiber} |
+| cats_effect.runtime.wstp.local_queue.fiber.total_steal_attempt_count | Local queue total fiber steal attempt count | {fiber} |
+| cats_effect.runtime.wstp.local_queue.fiber.total_steal_attempt_count.successful | Local queue total successful fiber steal attempt count | {fiber} |
+| cats_effect.runtime.wstp.local_queue.fiber.current_count | Local queue current fiber count | {fiber} |
+| cats_effect.runtime.wstp.local_queue.fiber.current_count.real | Local queue current real fiber count | {fiber} |
+
+### Work-Stealing Thread Pool - Timer Heap
+
+**Platforms**: JVM.
+
+**Built-in attributes**:
+* `pool.id` - the id of the work-stealing thread pool the timer heap is used by
+* `worker.index` - the index of the worker thread the timer heap is used by
+* `timer.state` - the state of the timer:
+    * `executed` - the successfully executed timer
+    * `scheduled` - the scheduled timer
+    * `canceled` - the canceled timer
+
+These metrics provide a detailed view of timer stats within the pool.
+
+| Name | Description | Unit |
+|------|-------------|------|
+| cats_effect.runtime.wstp.timer_heap.timer.count | Timer heap timer count | {timer} |
+
+### Work-Stealing Thread Pool - Poller
+
+**Platforms**: JVM.
+
+**Built-in attributes**:
+* `pool.id` - the id of the work-stealing thread pool the poller is used by
+* `worker.index` - the index of the worker thread the poller is used by
+* `poller.operation` - the operation performed by the poller:
+    * `accept`
+    * `connect`
+    * `read`
+    * `write`
+* `poller.operation.status` - the status of the operation:
+    * `submitted` - the operation has been submitted
+    * `succeeded` - the operation has succeeded
+    * `errored` - the operation has errored
+    * `canceled` - the operation has been canceled
+
+These metrics provide a detailed view of poller stats within the pool.
+
+| Name | Description | Unit |
+|------|-------------|------|
+| cats_effect.runtime.wstp.poller.operation.count | Poller operation count | {operation} |
+
+## Getting Started
+
+Add the following configuration to your build tool:
+
+<Tabs>
+  <Tab title="sbt">
+    Add settings to the `build.sbt`:
+
+    ```scala
+    libraryDependencies ++= Seq(
+      "org.typelevel" %%% "otel4s-instrumentation-metrics" % "@VERSION@" // <1>
+    )
+    ```
+  </Tab>
+  <Tab title="Scala CLI">
+    Add directives to the `*.scala` file:
+
+    ```scala
+    //> using dep "org.typelevel::otel4s-instrumentation-metrics::@VERSION@" // <1>
+    ```
+  </Tab>
+</Tabs>
+
+## Registering Metrics Collectors
+
+`IORuntimeMetrics.register` takes care of the metrics lifecycle management.
+
+```scala
+import cats.effect._
+import org.typelevel.otel4s.instrumentation.ce.IORuntimeMetrics
+import org.typelevel.otel4s.metrics.MeterProvider
+import org.typelevel.otel4s.trace.TracerProvider
+import org.typelevel.otel4s.oteljava.OtelJava
+
+object Main extends IOApp.Simple {
+
+  def run: IO[Unit] =
+    OtelJava.autoConfigured[IO]().use { otel4s =>
+      implicit val mp: MeterProvider[IO] = otel4s.meterProvider
+      IORuntimeMetrics
+        .register[IO](runtime.metrics, IORuntimeMetrics.Config.default)
+        .surround {
+          program(otel4s.meterProvider, otel4s.tracerProvider)
+        }
+    }
+
+  def program(
+      meterProvider: MeterProvider[IO],
+      tracerProvider: TracerProvider[IO]
+  ): IO[Unit] = {
+    val _ = (meterProvider, tracerProvider)
+    IO.unit
+  }
+
+}
+```
+
+## Grafana Dashboard
+
+You can use a Grafana [dashboard](https://grafana.com/grafana/dashboards/21487-cats-effect-runtime-metrics/) to visualize collected metrics.
+
+## Customization
+
+The behavior of the `IORuntimeMetrics.register` can be customized via `IORuntimeMetrics.Config`.
+
+### CPU Starvation
+
+To disable CPU starvation metrics:
+
+```scala
+import cats.effect.IO
+import org.typelevel.otel4s.instrumentation.ce.IORuntimeMetrics
+import org.typelevel.otel4s.metrics.MeterProvider
+
+val runtime = cats.effect.unsafe.implicits.global
+implicit val mp: MeterProvider[IO] = MeterProvider.noop[IO]
+
+val config: IORuntimeMetrics.Config = {
+  import IORuntimeMetrics.Config._
+  IORuntimeMetrics.Config(
+    CpuStarvationConfig.disabled, // disable CPU starvation metrics 
+    WorkStealingThreadPoolConfig.enabled
+  )
+}
+
+IORuntimeMetrics.register[IO](runtime.metrics, config)
+```
+
+To attach attributes to CPU starvation metrics:
+
+```scala
+import org.typelevel.otel4s.{Attribute, Attributes}
+
+val config: IORuntimeMetrics.Config = {
+  import IORuntimeMetrics.Config._
+  IORuntimeMetrics.Config(
+    CpuStarvationConfig.enabled(
+      Attributes(Attribute("key", "value")) // the attributes
+    ), 
+    WorkStealingThreadPoolConfig.enabled
+  )
+}
+
+IORuntimeMetrics.register[IO](runtime.metrics, config)
+```
+
+### Work-Stealing Thread Pool - Compute
+
+To disable compute metrics:
+
+```scala
+val config: IORuntimeMetrics.Config = {
+  import IORuntimeMetrics.Config._
+  import WorkStealingThreadPoolConfig._
+
+  IORuntimeMetrics.Config(
+    CpuStarvationConfig.enabled,
+    WorkStealingThreadPoolConfig(
+      ComputeConfig.disabled, // disable compute metrics
+      WorkStealingThreadPoolConfig.WorkerThreadsConfig.enabled
+    )
+  )
+}
+
+IORuntimeMetrics.register[IO](runtime.metrics, config)
+```
+
+To attach attributes to compute metrics:
+
+```scala
+val config: IORuntimeMetrics.Config = {
+  import IORuntimeMetrics.Config._
+  import WorkStealingThreadPoolConfig._
+
+  IORuntimeMetrics.Config(
+    CpuStarvationConfig.enabled,
+    WorkStealingThreadPoolConfig(
+      ComputeConfig.enabled(
+        Attributes(Attribute("key", "value")) // attributes
+      ),
+      WorkStealingThreadPoolConfig.WorkerThreadsConfig.enabled
+    )
+  )
+}
+
+IORuntimeMetrics.register[IO](runtime.metrics, config)
+```
+
+### Additional Configuration Options
+
+You can also configure:
+- **Thread metrics** - Enable/disable or add attributes to worker thread event tracking
+- **Local queue metrics** - Control fiber queue monitoring
+- **Timer heap metrics** - Manage timer scheduling insights
+- **Poller metrics** - Configure I/O operation tracking
+
+Each configuration follows the same pattern: you can either disable the metric group entirely or enable it with optional custom attributes.
+
+<Note>
+  For complete configuration examples for all metric types, refer to the source documentation or the API reference.
+</Note>
+
+## Best Practices
+
+<Steps>
+  <Step title="Start with default configuration">
+    Use `IORuntimeMetrics.Config.default` initially and only customize when you have specific needs.
+  </Step>
+  <Step title="Monitor in production">
+    These metrics are designed to be low-overhead and safe to enable in production environments.
+  </Step>
+  <Step title="Use with Grafana">
+    Set up the official Grafana dashboard for visual monitoring of your runtime metrics.
+  </Step>
+  <Step title="Correlate with traces">
+    Combine runtime metrics with distributed tracing to get a complete picture of your application's performance.
+  </Step>
+  <Step title="Alert on CPU starvation">
+    Set up alerts for CPU starvation metrics to catch performance issues early.
+  </Step>
+</Steps>

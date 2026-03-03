@@ -1,0 +1,194 @@
+---
+title: TextMapPropagator
+description: Propagate context across process boundaries using text-based carriers
+---
+
+`TextMapPropagator[Ctx]` handles the process of propagating data across process boundaries by injecting and extracting values in text form into carriers that travel in-band.
+
+## Overview
+
+The encoding used for propagation conforms to HTTP Header Field semantics, and values are commonly encoded as request headers for RPC/HTTP requests.
+
+Carriers used for propagating data are typically HTTP requests, and the process is often implemented using library-specific request interceptors:
+- **Client side**: Values are injected into carriers
+- **Server side**: Values are extracted from carriers
+
+## Type Parameters
+
+- `Ctx` - The context type used to extract or inject data
+
+## Methods
+
+### fields
+
+```scala
+def fields: Iterable[String]
+```
+
+<ParamField name="fields" type="Iterable[String]" required>
+  The collection of propagation fields (typically HTTP header names) that this propagator uses.
+</ParamField>
+
+Returns the collection of field names that this propagator reads and writes. For HTTP propagation, these are typically header names like `"traceparent"`, `"tracestate"`, or `"baggage"`.
+
+### extract
+
+```scala
+def extract[A: TextMapGetter](ctx: Ctx, carrier: A): Ctx
+```
+
+<ParamField name="ctx" type="Ctx" required>
+  The context object to which the key-value pairs are added
+</ParamField>
+
+<ParamField name="carrier" type="A" required>
+  The carrier that holds propagation fields (e.g., HTTP request headers)
+</ParamField>
+
+<ParamField name="TextMapGetter[A]" type="implicit" required>
+  Type class instance for reading values from the carrier
+</ParamField>
+
+Extracts key-value pairs from the given carrier and adds them to the given context.
+
+**Returns:** The new context with stored key-value pairs
+
+**Example:**
+
+```scala
+val incomingContext = propagator.extract(Context.root, httpRequest)
+```
+
+### inject
+
+```scala
+def inject[A: TextMapUpdater](ctx: Ctx, carrier: A): A
+```
+
+<ParamField name="ctx" type="Ctx" required>
+  The context containing the value to be injected
+</ParamField>
+
+<ParamField name="carrier" type="A" required>
+  The carrier that holds propagation fields (e.g., HTTP request headers)
+</ParamField>
+
+<ParamField name="TextMapUpdater[A]" type="implicit" required>
+  Type class instance for writing values to the carrier
+</ParamField>
+
+Injects data from the context into a copy of the given immutable carrier for downstream consumers, for example as HTTP headers.
+
+This method is an extension to the OpenTelemetry specification to support immutable carrier types.
+
+**Returns:** A copy of the carrier with new fields injected
+
+**Example:**
+
+```scala
+val updatedRequest = propagator.inject(currentContext, httpRequest)
+```
+
+## Factory Methods
+
+### of
+
+```scala
+def of[Ctx](propagators: TextMapPropagator[Ctx]*): TextMapPropagator[Ctx]
+```
+
+<ParamField name="propagators" type="TextMapPropagator[Ctx]*" required>
+  The propagators to combine for injection and extraction
+</ParamField>
+
+Creates a `TextMapPropagator` which delegates injection and extraction to the provided propagators. When multiple propagators are provided, they are combined into a composite propagator that applies all of them in sequence.
+
+**Example:**
+
+```scala
+val w3cPropagator: TextMapPropagator[Context] = ???
+val httpTracePropagator: TextMapPropagator[Context] = ???
+val textMapPropagator = TextMapPropagator.of(w3cPropagator, httpTracePropagator)
+```
+
+### noop
+
+```scala
+def noop[Ctx]: TextMapPropagator[Ctx]
+```
+
+Creates a no-op implementation of `TextMapPropagator`. All propagation operations are no-op:
+- `fields` returns an empty collection
+- `extract` returns the context unchanged
+- `inject` returns the carrier unchanged
+
+Useful for testing or when propagation is disabled.
+
+## Monoid Instance
+
+`TextMapPropagator` has a `Monoid` instance that allows combining multiple propagators using Cats operations:
+
+```scala
+import cats.syntax.semigroup._
+
+val combined = propagator1 |+| propagator2 |+| propagator3
+```
+
+The monoid combines propagators intelligently:
+- Empty element is `noop`
+- Combining with `noop` returns the other propagator unchanged
+- Multiple propagators are combined into a composite that applies all of them
+
+## Usage Examples
+
+### Server-side extraction
+
+```scala
+import org.typelevel.otel4s.context.propagation._
+
+// Extract context from incoming HTTP request
+val incomingContext = textMapPropagator.extract(
+  Context.root,
+  incomingRequest
+)
+
+// Use the context for processing
+processRequest(incomingContext)
+```
+
+### Client-side injection
+
+```scala
+import org.typelevel.otel4s.context.propagation._
+
+// Inject current context into outgoing HTTP request
+val outgoingRequest = textMapPropagator.inject(
+  currentContext,
+  httpRequestBuilder
+)
+
+// Send the request with propagated context
+sendRequest(outgoingRequest)
+```
+
+### Combining propagators
+
+```scala
+import org.typelevel.otel4s.context.propagation._
+
+// Create individual propagators
+val w3cPropagator: TextMapPropagator[Context] = ???
+val baggagePropagator: TextMapPropagator[Context] = ???
+val customPropagator: TextMapPropagator[Context] = ???
+
+// Combine into a single propagator
+val combined = TextMapPropagator.of(
+  w3cPropagator,
+  baggagePropagator,
+  customPropagator
+)
+
+// Now extraction and injection will use all three propagators
+val ctx = combined.extract(Context.root, request)
+val req = combined.inject(ctx, requestBuilder)
+```

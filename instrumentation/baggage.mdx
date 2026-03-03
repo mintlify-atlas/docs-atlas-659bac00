@@ -1,0 +1,167 @@
+---
+title: Baggage
+description: Learn how to propagate contextual metadata across service boundaries using Baggage in otel4s
+---
+
+In [OpenTelemetry](https://opentelemetry.io/docs/concepts/signals/baggage), `Baggage` is a mechanism for propagating key-value pairs across service boundaries. It allows applications to attach contextual metadata (e.g., request IDs, user IDs, or debug flags) to distributed traces, ensuring that relevant data flows alongside requests without modifying their payloads.
+
+## Use Cases
+
+Baggage is primarily used for:
+- Enriching logs and traces with contextual information
+- Debugging and monitoring distributed applications
+- Passing request-scoped metadata without modifying the business logic
+
+## What is BaggageManager?
+
+`BaggageManager` is a functional abstraction that provides an interface to manage `Baggage`. It extends `Local[F, Baggage]` and can:
+
+<Steps>
+  <Step title="Read the current Baggage">
+    Use the `current` method to access the current baggage.
+  </Step>
+  <Step title="Modify Baggage in a scoped manner">
+    Use `local` or `scope` methods for scoped modifications.
+  </Step>
+  <Step title="Read specific entries">
+    Use `get` or `getValue` to retrieve specific baggage entries.
+  </Step>
+</Steps>
+
+## Getting the BaggageManager
+
+You can obtain a `BaggageManager` instance from the autoconfigured OtelJava:
+
+```scala
+import cats.effect.IO
+import org.typelevel.otel4s.baggage.BaggageManager
+import org.typelevel.otel4s.oteljava.OtelJava
+
+OtelJava.autoConfigured[IO]().use { otel4s =>
+  val baggageManager: BaggageManager[IO] = otel4s.baggageManager
+  IO.println("BaggageManager: " + baggageManager)
+}
+```
+
+## Using BaggageManager
+
+<Note>
+  `Baggage` can be modified exclusively in a scoped-manner.
+</Note>
+
+### Reading the Current Baggage
+
+To read the current baggage context:
+
+```scala
+def printBaggage(implicit bm: BaggageManager[IO]): IO[Unit] =
+  BaggageManager[IO].current.flatMap(b => IO.println(s"Baggage: $b"))
+```
+
+### Setting and Modifying Baggage
+
+You can modify baggage in a scoped manner using `local` or `scope`:
+
+```scala
+import org.typelevel.otel4s.baggage.Baggage
+
+def withUserId[A](fa: IO[A])(implicit bm: BaggageManager[IO]): IO[A] =
+  bm.local(b => b.updated("user-id", "12345"))(fa)
+
+def withScopedBaggage[A](fa: IO[A])(implicit bm: BaggageManager[IO]): IO[A] =
+  bm.scope(Baggage.empty.updated("request-id", "req-abc"))(fa)
+```
+
+#### Using `local`
+
+The `local` method modifies the current baggage by applying a transformation function:
+
+```scala
+import cats.effect.IO
+import org.typelevel.otel4s.baggage.BaggageManager
+
+def addUserContext[A](userId: String)(effect: IO[A])(implicit bm: BaggageManager[IO]): IO[A] =
+  bm.local(baggage => baggage.updated("user-id", userId))(effect)
+```
+
+#### Using `scope`
+
+The `scope` method replaces the entire baggage context for the duration of an effect:
+
+```scala
+import org.typelevel.otel4s.baggage.Baggage
+
+def withCustomBaggage[A](effect: IO[A])(implicit bm: BaggageManager[IO]): IO[A] = {
+  val customBaggage = Baggage.empty
+    .updated("request-id", "req-123")
+    .updated("debug-mode", "true")
+  
+  bm.scope(customBaggage)(effect)
+}
+```
+
+### Retrieving a Specific Baggage Entry
+
+You can retrieve individual baggage values using `getValue`:
+
+```scala
+def fetchBaggageEntry(implicit bm: BaggageManager[IO]): IO[Unit] =
+  bm.getValue("user-id").flatMap {
+    case Some(userId) => IO.println(s"User ID: $userId")
+    case None         => IO.println("User ID not found in baggage")
+  }
+```
+
+## Complete Example
+
+Here's a complete example showing how to use baggage in a service:
+
+```scala
+import cats.effect.{IO, IOApp}
+import org.typelevel.otel4s.baggage.{Baggage, BaggageManager}
+import org.typelevel.otel4s.oteljava.OtelJava
+
+object BaggageExample extends IOApp.Simple {
+
+  def processRequest(userId: String)(implicit bm: BaggageManager[IO]): IO[Unit] =
+    bm.local(_.updated("user-id", userId)) {
+      for {
+        _ <- IO.println("Processing request...")
+        _ <- logUserContext
+        _ <- performOperation
+      } yield ()
+    }
+
+  def logUserContext(implicit bm: BaggageManager[IO]): IO[Unit] =
+    bm.getValue("user-id").flatMap {
+      case Some(userId) => IO.println(s"Current user: $userId")
+      case None         => IO.println("No user context")
+    }
+
+  def performOperation(implicit bm: BaggageManager[IO]): IO[Unit] =
+    IO.println("Performing operation with baggage context")
+
+  def run: IO[Unit] =
+    OtelJava.autoConfigured[IO]().use { otel4s =>
+      implicit val bm: BaggageManager[IO] = otel4s.baggageManager
+      processRequest("user-12345")
+    }
+}
+```
+
+## Best Practices
+
+<Steps>
+  <Step title="Keep baggage small">
+    Baggage is propagated in every request, so keep the data minimal to avoid performance overhead.
+  </Step>
+  <Step title="Use meaningful keys">
+    Use clear, consistent naming conventions for baggage keys across your services.
+  </Step>
+  <Step title="Scope modifications appropriately">
+    Always use scoped modifications (`local` or `scope`) to ensure baggage changes don't leak beyond their intended context.
+  </Step>
+  <Step title="Don't store sensitive data">
+    Baggage can be logged and propagated across service boundaries, so avoid storing sensitive information.
+  </Step>
+</Steps>

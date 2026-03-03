@@ -1,0 +1,208 @@
+---
+title: SpanContext
+description: Contains the state that must propagate to child spans and across process boundaries
+---
+
+`SpanContext` contains the state that must propagate to child spans and across process boundaries. It includes the identifiers (`trace_id` and `span_id`) associated with the span, a set of flags, and the remote flag.
+
+## Overview
+
+A span context is an immutable object that represents the distributed tracing context. It is propagated both in-process to child spans and across process boundaries through context propagation mechanisms.
+
+See the [OpenTelemetry specification](https://opentelemetry.io/docs/specs/otel/trace/api/#spancontext) for more details.
+
+## Properties
+
+### traceId
+
+**Type:** `ByteVector`
+
+Returns the trace identifier associated with this `SpanContext` as a 16-byte vector.
+
+### traceIdHex
+
+**Type:** `String`
+
+Returns the trace identifier associated with this `SpanContext` as a 32 character lowercase hex string.
+
+### spanId
+
+**Type:** `ByteVector`
+
+Returns the span identifier associated with this `SpanContext` as an 8-byte vector.
+
+### spanIdHex
+
+**Type:** `String`
+
+Returns the span identifier associated with this `SpanContext` as a 16 character lowercase hex string.
+
+### traceFlags
+
+**Type:** `TraceFlags`
+
+Returns details about the trace associated with this `SpanContext` as an 8-bit field.
+
+### traceState
+
+**Type:** `TraceState`
+
+Returns the trace state associated with this `SpanContext`.
+
+### isSampled
+
+**Type:** `Boolean`
+
+Returns `true` if this `SpanContext` is sampled.
+
+### isValid
+
+**Type:** `Boolean`
+
+Returns `true` if this `SpanContext` is valid. A valid span context has valid trace and span identifiers.
+
+### isRemote
+
+**Type:** `Boolean`
+
+Returns `true` if this `SpanContext` was propagated from a remote parent.
+
+## Companion Object
+
+### apply
+
+<ParamField path="traceId" type="ByteVector" required>
+  The trace identifier of the span context (must be 16 bytes)
+</ParamField>
+
+<ParamField path="spanId" type="ByteVector" required>
+  The span identifier of the span context (must be 8 bytes)
+</ParamField>
+
+<ParamField path="traceFlags" type="TraceFlags" required>
+  The trace flags of the span context
+</ParamField>
+
+<ParamField path="traceState" type="TraceState" required>
+  The trace state of the span context
+</ParamField>
+
+<ParamField path="remote" type="Boolean" required>
+  Whether the span is propagated from a remote parent or not
+</ParamField>
+
+**Returns:** `SpanContext`
+
+Creates a new `SpanContext` with the given identifiers and options.
+
+If the `traceId` or the `spanId` are invalid (i.e., do not conform to the requirements for hexadecimal ids of the appropriate lengths), both will be replaced with the standard "invalid" versions (all '0's).
+
+### invalid
+
+**Type:** `SpanContext`
+
+A constant representing an invalid span context with all-zero identifiers.
+
+## TraceId Utilities
+
+### TraceId.Bytes
+
+**Type:** `Int`
+
+The number of bytes in a trace ID (16).
+
+### TraceId.HexLength
+
+**Type:** `Int`
+
+The length of a trace ID hex string (32).
+
+### TraceId.Invalid
+
+**Type:** `ByteVector`
+
+The invalid trace ID (all zeros).
+
+### TraceId.fromLongs
+
+<ParamField path="hi" type="Long" required>
+  The high 8 bytes of the trace ID
+</ParamField>
+
+<ParamField path="lo" type="Long" required>
+  The low 8 bytes of the trace ID
+</ParamField>
+
+**Returns:** `ByteVector`
+
+Creates a trace ID from two Long values.
+
+### TraceId.fromHex
+
+<ParamField path="hex" type="String" required>
+  The hexadecimal string representation of the trace ID
+</ParamField>
+
+**Returns:** `Option[ByteVector]`
+
+Creates a trace ID from a hex string. Returns `None` when the input isn't valid hex or the ID is invalid.
+
+### TraceId.isValid
+
+<ParamField path="id" type="ByteVector" required>
+  The trace ID to validate
+</ParamField>
+
+**Returns:** `Boolean`
+
+Checks whether a trace ID has the correct length and is not the invalid ID.
+
+## SpanId Utilities
+
+### SpanId.Bytes
+
+**Type:** `Int`
+
+The number of bytes in a span ID (8).
+
+### SpanId.HexLength
+
+**Type:** `Int`
+
+The length of a span ID hex string (16).
+
+### SpanId.Invalid
+
+**Type:** `ByteVector`
+
+The invalid span ID (all zeros).
+
+### SpanId.fromLong
+
+<ParamField path="value" type="Long" required>
+  The Long value to convert to a span ID
+</ParamField>
+
+**Returns:** `ByteVector`
+
+Creates a span ID from a Long value.
+
+### SpanId.fromHex
+
+<ParamField path="hex" type="String" required>
+  The hexadecimal string representation of the span ID
+</ParamField>
+
+**Returns:** `Option[ByteVector]`
+
+Creates a span ID from a hex string. Returns `None` when the input isn't valid hex or the ID is invalid.
+
+### SpanId.isValid
+
+<ParamField path="id" type="ByteVector" required>
+  The span ID to validate
+</ParamField>
+
+**Returns:** `Boolean`
+
+Checks whether a span ID has the correct length and is not the invalid ID.

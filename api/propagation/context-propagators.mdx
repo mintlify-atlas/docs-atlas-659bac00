@@ -1,0 +1,86 @@
+---
+title: ContextPropagators
+description: A container of the registered propagators for every supported format
+---
+
+`ContextPropagators[Ctx]` is a container that holds registered propagators for every supported format. It provides a centralized way to manage text map propagators used for extracting and injecting context across process boundaries.
+
+## Overview
+
+Context propagators are essential for distributing trace context and baggage across service boundaries. The `ContextPropagators` trait acts as a registry that holds the configured propagators for your application.
+
+## Type Parameters
+
+- `Ctx` - The type of the context used for propagation
+
+## Methods
+
+### textMapPropagator
+
+<ParamField name="textMapPropagator" type="TextMapPropagator[Ctx]" required>
+  Returns a text map propagator to extract or inject data.
+</ParamField>
+
+```scala
+def textMapPropagator: TextMapPropagator[Ctx]
+```
+
+Returns the configured text map propagator instance that can be used to extract or inject context data.
+
+## Factory Methods
+
+### of
+
+<ParamField name="textMapPropagators" type="TextMapPropagator[Ctx]*" required>
+  The propagators to use for injection and extraction. If multiple propagators are provided, they will be combined into a composite propagator.
+</ParamField>
+
+```scala
+def of[Ctx](textMapPropagators: TextMapPropagator[Ctx]*): ContextPropagators[Ctx]
+```
+
+Creates a `ContextPropagators` instance which can be used to extract and inject context in text payloads with the given `TextMapPropagator`.
+
+If multiple text map propagators are passed, a combined (composite) `TextMapPropagator` instance will be created.
+
+**Example:**
+
+```scala
+val w3cPropagator: TextMapPropagator[Context] = ???
+val httpTracePropagator: TextMapPropagator[Context] = ???
+val contextPropagators = ContextPropagators.of(w3cPropagator, httpTracePropagator)
+```
+
+This is a shortcut for:
+
+```scala
+ContextPropagators.of(TextMapPropagator.of(w3cPropagator, httpTracePropagator))
+```
+
+### noop
+
+```scala
+def noop[Ctx]: ContextPropagators[Ctx]
+```
+
+Creates a no-op implementation of `ContextPropagators`. The contained `TextMapPropagator` also has a no-op implementation, meaning all propagation operations will do nothing.
+
+Useful for testing or when propagation is not required.
+
+## Usage
+
+Typically, you'll create a `ContextPropagators` instance during application initialization and use it throughout your application:
+
+```scala
+import org.typelevel.otel4s.context.propagation._
+
+// Create individual propagators
+val w3cPropagator: TextMapPropagator[Context] = ???
+val baggagePropagator: TextMapPropagator[Context] = ???
+
+// Combine them into a single ContextPropagators instance
+val propagators = ContextPropagators.of(w3cPropagator, baggagePropagator)
+
+// Access the text map propagator when needed
+val textMap = propagators.textMapPropagator
+```

@@ -1,0 +1,160 @@
+---
+title: "Jaeger with Docker"
+description: "Collect and visualize traces using Jaeger running in Docker"
+---
+
+In this example, we'll use [Jaeger](https://jaegertracing.io/) to collect and visualize traces produced by an otel4s application. We'll cover the installation and configuration of Jaeger, as well as the instrumentation of the application.
+
+## Project Setup
+
+Configure your project with the required dependencies:
+
+<CodeGroup>
+
+```scala sbt
+// Add to build.sbt
+libraryDependencies ++= Seq(
+  "org.typelevel" %% "otel4s-oteljava" % "@VERSION@",
+  "io.opentelemetry" % "opentelemetry-exporter-otlp" % "@OPEN_TELEMETRY_VERSION@" % Runtime,
+  "io.opentelemetry" % "opentelemetry-sdk-extension-autoconfigure" % "@OPEN_TELEMETRY_VERSION@" % Runtime
+)
+
+run / fork := true
+javaOptions += "-Dotel.java.global-autoconfigure.enabled=true"
+javaOptions += "-Dotel.service.name=jaeger-example"
+javaOptions += "-Dotel.metrics.exporter=none"
+```
+
+```scala scala-cli
+// Add to tracing.scala
+//> using dep "org.typelevel::otel4s-oteljava:@VERSION@"
+//> using dep "io.opentelemetry:opentelemetry-exporter-otlp:@OPEN_TELEMETRY_VERSION@"
+//> using dep "io.opentelemetry:opentelemetry-sdk-extension-autoconfigure:@OPEN_TELEMETRY_VERSION@"
+//> using javaOpt "-Dotel.java.global-autoconfigure.enabled=true"
+//> using javaOpt "-Dotel.service.name=jaeger-example"
+//> using javaOpt "-Dotel.metrics.exporter=none"
+```
+
+</CodeGroup>
+
+<Note>
+  The `otel.metrics.exporter=none` setting is required because Jaeger is compatible only with traces, not metrics.
+</Note>
+
+## OpenTelemetry SDK Configuration
+
+The OpenTelemetry SDK can be configured via system properties or environment variables. See the full list of [environment variable configurations](https://opentelemetry.io/docs/languages/java/configuration) for more options.
+
+## Jaeger Setup with Docker
+
+Run Jaeger using Docker with OpenTelemetry support enabled:
+
+```bash
+docker run --name jaeger \
+  -e COLLECTOR_OTLP_ENABLED=true \
+  -p 16686:16686 \
+  -p 4317:4317 \
+  -p 4318:4318 \
+  jaegertracing/all-in-one:1.35
+```
+
+**Port mappings:**
+- `16686` - Jaeger UI
+- `4317` - OpenTelemetry gRPC receiver
+- `4318` - OpenTelemetry HTTP receiver
+
+## Application Example
+
+Here's a complete example that creates nested spans with events and attributes:
+
+```scala
+import cats.effect.{Async, IO, IOApp, Resource}
+import cats.effect.std.Console
+import cats.effect.std.Random
+import cats.syntax.all._
+import org.typelevel.otel4s.Attribute
+import org.typelevel.otel4s.oteljava.OtelJava
+import org.typelevel.otel4s.trace.Tracer
+import scala.concurrent.duration._
+
+trait Work[F[_]] {
+  def doWork: F[Unit]
+}
+
+object Work {
+  def apply[F[_]: Async: Tracer: Console]: Work[F] =
+    new Work[F] {
+      def doWork: F[Unit] =
+        Tracer[F].span("Work.DoWork").use { span =>
+          span.addEvent("Starting the work.") *>
+            doWorkInternal(steps = 10) *>
+            span.addEvent("Finished working.")
+        }
+
+      def doWorkInternal(steps: Int): F[Unit] = {
+        val step = Tracer[F]
+          .span("internal", Attribute("steps", steps.toLong))
+          .surround {
+            for {
+              random <- Random.scalaUtilRandom
+              delay <- random.nextIntBounded(1000)
+              _ <- Async[F].sleep(delay.millis)
+              _ <- Console[F].println("Doin' work")
+            } yield ()
+          }
+
+        if (steps > 0) step *> doWorkInternal(steps - 1) else step
+      }
+    }
+}
+
+object TracingExample extends IOApp.Simple {
+  def tracer: Resource[IO, Tracer[IO]] =
+    OtelJava.autoConfigured[IO]().evalMap(_.tracerProvider.get("Example"))
+
+  def run: IO[Unit] =
+    tracer
+      .evalMap { implicit tracer: Tracer[IO] =>
+        Work[IO].doWork
+      }
+      .use_
+}
+```
+
+## Running the Application
+
+<CodeGroup>
+
+```bash sbt
+sbt run
+```
+
+```bash scala-cli
+scala-cli run tracing.scala
+```
+
+</CodeGroup>
+
+## Viewing Traces in Jaeger
+
+<Steps>
+
+### Open Jaeger UI
+
+Navigate to [http://localhost:16686](http://localhost:16686) in your browser.
+
+### Select Your Service
+
+Choose "jaeger-example" from the service dropdown.
+
+### Find Traces
+
+Click "Find Traces" to see the collected traces.
+
+### Explore Trace Details
+
+Click on a trace to see the span hierarchy, timing information, events, and attributes.
+
+</Steps>
+
+You should see a trace with a parent span "Work.DoWork" containing 10 nested "internal" spans, each with a "steps" attribute showing the iteration count.

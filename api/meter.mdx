@@ -1,0 +1,318 @@
+---
+title: Meter
+description: API reference for the Meter trait, used for creating and managing metrics instruments in otel4s
+---
+
+The `Meter` trait is the main entry point for creating metrics instruments in otel4s. It provides methods for creating counters, histograms, gauges, and observable instruments.
+
+## Type Signature
+
+```scala
+sealed trait Meter[F[_]]
+```
+
+## Core Properties
+
+### meta
+
+```scala
+def meta: InstrumentMeta[F]
+```
+
+The instrument's metadata. Indicates whether instrumentation is enabled.
+
+## Synchronous Instruments
+
+### counter
+
+```scala
+def counter[A: MeasurementValue](name: String): Counter.Builder[F, A]
+```
+
+Creates a builder of `Counter` instrument that records values of type `A`.
+
+The `Counter` is monotonic, meaning the aggregated value is nominally increasing.
+
+<ParamField path="name" type="String" required>
+  The name of the instrument
+</ParamField>
+
+<ParamField path="A" type="Type Parameter" required>
+  The type of the measurement. `Long` and `Double` are supported out of the box
+</ParamField>
+
+**Returns:** `Counter.Builder[F, A]`
+
+**Note:** The `A` type must be provided explicitly, for example `meter.counter[Long]` or `meter.counter[Double]`
+
+**Example:**
+
+```scala
+val meter: Meter[F] = ???
+
+val doubleCounter: F[Counter[F, Double]] =
+  meter.counter[Double]("double-counter").create
+
+val longCounter: F[Counter[F, Long]] =
+  meter.counter[Long]("long-counter").create
+```
+
+### upDownCounter
+
+```scala
+def upDownCounter[A: MeasurementValue](name: String): UpDownCounter.Builder[F, A]
+```
+
+Creates a builder of `UpDownCounter` instrument that records values of type `A`.
+
+The `UpDownCounter` is non-monotonic, meaning the aggregated value can increase and decrease.
+
+<ParamField path="name" type="String" required>
+  The name of the instrument
+</ParamField>
+
+<ParamField path="A" type="Type Parameter" required>
+  The type of the measurement. `Long` and `Double` are supported out of the box
+</ParamField>
+
+**Returns:** `UpDownCounter.Builder[F, A]`
+
+**Example:**
+
+```scala
+val meter: Meter[F] = ???
+
+val doubleUpDownCounter: F[UpDownCounter[F, Double]] =
+  meter.upDownCounter[Double]("double-up-down-counter").create
+
+val longUpDownCounter: F[UpDownCounter[F, Long]] =
+  meter.upDownCounter[Long]("long-up-down-counter").create
+```
+
+### histogram
+
+```scala
+def histogram[A: MeasurementValue](name: String): Histogram.Builder[F, A]
+```
+
+Creates a builder of `Histogram` instrument that records values of type `A`.
+
+Histogram metric data points convey a population of recorded measurements in a compressed format. A histogram bundles a set of events into divided populations with an overall event count and aggregate sum for all events.
+
+<ParamField path="name" type="String" required>
+  The name of the instrument
+</ParamField>
+
+<ParamField path="A" type="Type Parameter" required>
+  The type of the measurement. `Long` and `Double` are supported out of the box
+</ParamField>
+
+**Returns:** `Histogram.Builder[F, A]`
+
+**Example:**
+
+```scala
+val meter: Meter[F] = ???
+
+val doubleHistogram: F[Histogram[F, Double]] =
+  meter.histogram[Double]("double-histogram").create
+
+val longHistogram: F[Histogram[F, Long]] =
+  meter.histogram[Long]("long-histogram").create
+```
+
+### gauge
+
+```scala
+def gauge[A: MeasurementValue](name: String): Gauge.Builder[F, A]
+```
+
+Creates a builder of `Gauge` instrument that records values of type `A`.
+
+The `Gauge` records non-additive values.
+
+<ParamField path="name" type="String" required>
+  The name of the instrument
+</ParamField>
+
+<ParamField path="A" type="Type Parameter" required>
+  The type of the measurement. `Long` and `Double` are supported out of the box
+</ParamField>
+
+**Returns:** `Gauge.Builder[F, A]`
+
+**Example:**
+
+```scala
+val meter: Meter[F] = ???
+
+val doubleGauge: F[Gauge[F, Double]] =
+  meter.gauge[Double]("double-gauge").create
+
+val longGauge: F[Gauge[F, Long]] =
+  meter.gauge[Long]("long-gauge").create
+```
+
+## Asynchronous (Observable) Instruments
+
+### observableGauge
+
+```scala
+def observableGauge[A: MeasurementValue](name: String): ObservableGauge.Builder[F, A]
+```
+
+Creates a builder of `ObservableGauge` instrument that collects values of type `A` from the given callback.
+
+<ParamField path="name" type="String" required>
+  The name of the instrument
+</ParamField>
+
+<ParamField path="A" type="Type Parameter" required>
+  The type of the measurement. `Long` and `Double` are supported out of the box
+</ParamField>
+
+**Returns:** `ObservableGauge.Builder[F, A]`
+
+**Example:**
+
+```scala
+val meter: Meter[F] = ???
+
+val doubleGauge: Resource[F, ObservableGauge] =
+  meter
+    .observableGauge[Double]("double-gauge")
+    .create(Sync[F].delay(List(Measurement(1.0))))
+
+val longGauge: Resource[F, ObservableGauge] =
+  meter
+    .observableGauge[Long]("long-gauge")
+    .create(Sync[F].delay(List(Measurement(1L))))
+```
+
+### observableCounter
+
+```scala
+def observableCounter[A: MeasurementValue](name: String): ObservableCounter.Builder[F, A]
+```
+
+Creates a builder of `ObservableCounter` instrument that collects values of type `A` from the given callback.
+
+The `ObservableCounter` is monotonic, meaning the aggregated value is nominally increasing.
+
+<ParamField path="name" type="String" required>
+  The name of the instrument
+</ParamField>
+
+<ParamField path="A" type="Type Parameter" required>
+  The type of the measurement. `Long` and `Double` are supported out of the box
+</ParamField>
+
+**Returns:** `ObservableCounter.Builder[F, A]`
+
+**Example:**
+
+```scala
+val meter: Meter[F] = ???
+
+val doubleObservableCounter: Resource[F, ObservableCounter] =
+  meter
+    .observableCounter[Double]("double-counter")
+    .create(Sync[F].delay(List(Measurement(1.0))))
+
+val longObservableCounter: Resource[F, ObservableCounter] =
+  meter
+    .observableCounter[Long]("long-counter")
+    .create(Sync[F].delay(List(Measurement(1L))))
+```
+
+### observableUpDownCounter
+
+```scala
+def observableUpDownCounter[A: MeasurementValue](name: String): ObservableUpDownCounter.Builder[F, A]
+```
+
+Creates a builder of `ObservableUpDownCounter` instrument that collects values of type `A` from the given callback.
+
+The `ObservableUpDownCounter` is non-monotonic, meaning the aggregated value can increase and decrease.
+
+<ParamField path="name" type="String" required>
+  The name of the instrument
+</ParamField>
+
+<ParamField path="A" type="Type Parameter" required>
+  The type of the measurement. `Long` and `Double` are supported out of the box
+</ParamField>
+
+**Returns:** `ObservableUpDownCounter.Builder[F, A]`
+
+**Example:**
+
+```scala
+val meter: Meter[F] = ???
+
+val doubleObservableUpDownCounter: Resource[F, ObservableUpDownCounter] =
+  meter
+    .observableUpDownCounter[Double]("double-up-down-counter")
+    .create(Sync[F].delay(List(Measurement(1.0))))
+
+val longObservableUpDownCounter: Resource[F, ObservableUpDownCounter] =
+  meter
+    .observableUpDownCounter[Long]("long-up-down-counter")
+    .create(Sync[F].delay(List(Measurement(1L))))
+```
+
+## Batch Operations
+
+### batchCallback
+
+```scala
+def batchCallback: BatchCallback[F]
+```
+
+Constructs a batch callback.
+
+Batch callbacks allow a single callback to observe measurements for multiple asynchronous instruments. The callback will be called when the instruments are being observed.
+
+**Returns:** `BatchCallback[F]`
+
+**Example:**
+
+```scala
+val meter: Meter[F] = ???
+val server: F[Unit] = ??? // runs the server
+
+val background: Resource[F, Unit] =
+  meter.batchCallback.of(
+    meter.observableCounter[Long]("counter").createObserver,
+    meter.observableUpDownCounter[Double]("up-down-counter").createObserver,
+    meter.observableGauge[Double]("gauge").createObserver
+  ) { (counter, upDownCounter, gauge) =>
+    counter.record(1L) *> upDownCounter.record(2.0) *> gauge.record(3.0)
+  }
+
+background.surround(server) // register batch callback and run the server
+```
+
+## Creating a Meter
+
+### No-op Meter
+
+```scala
+import Meter.Implicits.noop
+```
+
+Creates a no-op implementation where all meter instruments have no-op implementations.
+
+### From MeterProvider
+
+```scala
+val meterProvider: MeterProvider[IO] = ???
+meterProvider
+  .get("com.service.runtime")
+  .flatMap { implicit meter: Meter[IO] => ??? }
+```
+
+## See Also
+
+- [Counter, Histogram, Gauge](/metrics/instruments) - Individual instrument types
+- [MeterProvider](/metrics/meter-provider) - Creating meters with proper configuration

@@ -1,0 +1,128 @@
+---
+title: UpDownCounter
+description: Non-monotonic counter instrument for recording values that can increase and decrease
+---
+
+A `Counter` instrument that records values of type `A`.
+
+The `UpDownCounter` is non-monotonic, meaning the aggregated value can both increase and decrease.
+
+## Type Signature
+
+```scala
+trait UpDownCounter[F[_], A]
+```
+
+**Type Parameters:**
+- `F[_]` - the higher-kinded type of a polymorphic effect
+- `A` - the type of values to record. Must have a `MeasurementValue` instance. `Long` and `Double` are supported out of the box.
+
+## Creating an UpDownCounter
+
+UpDownCounters are created using the `Meter` API:
+
+```scala
+val meter: Meter[IO] = ???
+
+val upDownCounter: IO[UpDownCounter[IO, Long]] =
+  meter.upDownCounter[Long]("active.connections")
+    .withUnit("connections")
+    .withDescription("Number of active connections")
+    .create
+```
+
+## Backend Methods
+
+### add
+
+Records a value with a set of attributes.
+
+<ParamField path="value" type="A" required>
+  The value to add to the counter. Can be positive or negative.
+</ParamField>
+
+<ParamField path="attributes" type="immutable.Iterable[Attribute[_]]" required>
+  The set of attributes to associate with the value.
+</ParamField>
+
+**Returns:** `F[Unit]`
+
+**Example:**
+```scala
+upDownCounter.flatMap { c =>
+  c.add(
+    5L,
+    Attribute(AttributeKey.string("connection.type"), "websocket")
+  )
+}
+```
+
+### inc
+
+Increments the counter by one.
+
+<ParamField path="attributes" type="immutable.Iterable[Attribute[_]]" required>
+  The set of attributes to associate with the value.
+</ParamField>
+
+**Returns:** `F[Unit]`
+
+**Example:**
+```scala
+upDownCounter.flatMap { c =>
+  c.inc(Attribute(AttributeKey.string("connection.type"), "websocket"))
+}
+```
+
+### dec
+
+Decrements the counter by one.
+
+<ParamField path="attributes" type="immutable.Iterable[Attribute[_]]" required>
+  The set of attributes to associate with the value.
+</ParamField>
+
+**Returns:** `F[Unit]`
+
+**Example:**
+```scala
+upDownCounter.flatMap { c =>
+  c.dec(Attribute(AttributeKey.string("connection.type"), "websocket"))
+}
+```
+
+## Builder Methods
+
+### withUnit
+
+Sets the unit of measure for this counter.
+
+<ParamField path="unit" type="String" required>
+  The measurement unit. Must be 63 or fewer ASCII characters.
+</ParamField>
+
+**Returns:** `UpDownCounter.Builder[F, A]`
+
+**Reference:** [Instrument Unit](https://github.com/open-telemetry/opentelemetry-specification/blob/main/specification/metrics/api.md#instrument-unit)
+
+### withDescription
+
+Sets the description for this counter.
+
+<ParamField path="description" type="String" required>
+  The description of the counter.
+</ParamField>
+
+**Returns:** `UpDownCounter.Builder[F, A]`
+
+**Reference:** [Instrument Description](https://github.com/open-telemetry/opentelemetry-specification/blob/main/specification/metrics/api.md#instrument-description)
+
+### create
+
+Creates an `UpDownCounter` with the configured unit and description.
+
+**Returns:** `F[UpDownCounter[F, A]]`
+
+## See Also
+
+- [Counter](/api/metrics/counter) - for monotonic counters

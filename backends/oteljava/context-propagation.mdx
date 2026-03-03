@@ -1,0 +1,248 @@
+---
+title: Context Propagation
+description: Integrate OpenTelemetry Java SDK context with Cats Effect fiber-based context
+---
+
+OpenTelemetry Java SDK and otel4s rely on different context manipulation approaches that aren't interoperable out of the box:
+
+- **Java SDK** uses ThreadLocal variables to share tracing information
+- **otel4s** uses [Local](https://typelevel.org/cats-mtl/mtl-classes/local.html) from Cats MTL
+
+Cats Effect 3.6.0 introduced a new method of fiber context tracking that can be integrated almost seamlessly with the OpenTelemetry Java SDK.
+
+## Installation
+
+<CodeGroup>
+```scala sbt
+libraryDependencies ++= Seq(
+  "org.typelevel" %% "otel4s-oteljava" % "@VERSION@", // <1>
+  "org.typelevel" %% "otel4s-oteljava-context-storage" % "@VERSION@", // <2>
+)
+javaOptions += "-Dcats.effect.trackFiberContext=true" // <3>
+```
+
+```scala scala-cli
+//> using dep "org.typelevel::otel4s-oteljava:@VERSION@" // <1>
+//> using dep "org.typelevel::otel4s-oteljava-context-storage:@VERSION@" // <2>
+//> using `java-opt` "-Dcats.effect.trackFiberContext=true" // <3>
+```
+</CodeGroup>
+
+1. Add the `otel4s-oteljava` library
+2. Add the `otel4s-oteljava-context-storage` library
+3. Enable Cats Effect fiber context tracking
+
+<Warning>
+Fiber context tracking must be enabled with `-Dcats.effect.trackFiberContext=true` for context propagation to work.
+</Warning>
+
+## Configuration
+
+You need to use `IOLocalContextStorage.localProvider[IO]` to provide the global context storage backed by `IOLocal`:
+
+```scala
+import cats.effect.{IO, IOApp}
+import io.opentelemetry.api.trace.{Span => JSpan}
+import org.typelevel.otel4s.context.LocalProvider
+import org.typelevel.otel4s.oteljava.OtelJava
+import org.typelevel.otel4s.oteljava.context.Context
+import org.typelevel.otel4s.oteljava.context.IOLocalContextStorage
+import org.typelevel.otel4s.trace.Tracer
+
+object Main extends IOApp.Simple {
+  def program(tracer: Tracer[IO]): IO[Unit] =
+    tracer.span("test").use { span => // start 'test' span using otel4s
+      // Get span from ThreadLocal - they're now in sync!
+      println(s"jctx: ${JSpan.current().getSpanContext}")
+      IO.println(s"otel4s: ${span.context}")
+    }
+
+  def run: IO[Unit] = {
+    implicit val provider: LocalProvider[IO, Context] =
+      IOLocalContextStorage.localProvider[IO]
+
+    OtelJava.autoConfigured[IO]().use { otelJava =>
+      otelJava.tracerProvider.tracer("com.service").get.flatMap { tracer =>
+        program(tracer)
+      }
+    }
+  } 
+}
+```
+
+The output shows that both contexts are synchronized:
+
+```
+jctx  : SpanContext{traceId=58b8ed50a558ca53fcc64a0d80b5e662, spanId=fc25fe2c9fb41905, ...} 
+otel4s: SpanContext{traceId=58b8ed50a558ca53fcc64a0d80b5e662, spanId=fc25fe2c9fb41905, ...}
+```
+
+## How It Works
+
+The `IOLocalContextStorage` class implements the OpenTelemetry Java `ContextStorage` interface using Cats Effect's `IOLocal`:
+
+```scala
+protected[oteljava] class IOLocalContextStorage(
+    _ioLocal: () => IOLocal[Context],
+    _unsafeThreadLocal: () => ThreadLocal[Context]
+) extends ContextStorage {
+  
+  override def attach(toAttach: JContext): Scope = {
+    val previous = unsafeCurrent
+    unsafeThreadLocal.set(Context.wrap(toAttach))
+    () => unsafeThreadLocal.set(previous)
+  }
+
+  override def current(): JContext =
+    unsafeCurrent.underlying
+    
+  def local[F[_]: MonadCancelThrow: LiftIO]: LocalContext[F] = 
+    LocalProvider.localForIOLocal(ioLocal)
+}
+```
+
+Key features:
+
+- **Fiber-local storage** - Each fiber maintains its own context
+- **ThreadLocal bridge** - Bridges fiber context with ThreadLocal for Java interop
+- **Automatic propagation** - Context automatically propagates across fiber boundaries
+
+## Usage Patterns
+
+### Basic Usage
+
+```scala
+import cats.effect.{IO, IOApp}
+import org.typelevel.otel4s.context.LocalProvider
+import org.typelevel.otel4s.oteljava.OtelJava
+import org.typelevel.otel4s.oteljava.context.Context
+import org.typelevel.otel4s.oteljava.context.IOLocalContextStorage
+
+object App extends IOApp.Simple {
+  def run: IO[Unit] = {
+    implicit val provider: LocalProvider[IO, Context] =
+      IOLocalContextStorage.localProvider[IO]
+
+    OtelJava.autoConfigured[IO]().use { otel4s =>
+      for {
+        tracer <- otel4s.tracerProvider.get("my-service")
+        _      <- tracer.span("operation").use { span =>
+          // Context is automatically propagated
+          nestedOperation(tracer)
+        }
+      } yield ()
+    }
+  }
+  
+  def nestedOperation(tracer: Tracer[IO]): IO[Unit] =
+    tracer.span("nested").use { span =>
+      // This span will be a child of the parent
+      IO.println(s"Nested span: ${span.context}")
+    }
+}
+```
+
+### With Concurrent Operations
+
+```scala
+import cats.effect.{IO, Ref}
+import cats.syntax.parallel._
+import org.typelevel.otel4s.trace.Tracer
+
+def processItems(
+  items: List[String]
+)(implicit tracer: Tracer[IO]): IO[Unit] =
+  tracer.span("process-all").use { _ =>
+    items.parTraverse_ { item =>
+      tracer.span(s"process-$item").use { span =>
+        // Each concurrent operation gets its own context
+        IO.println(s"Processing $item: ${span.context}")
+      }
+    }
+  }
+```
+
+### With Resource Management
+
+```scala
+import cats.effect.{IO, Resource}
+import org.typelevel.otel4s.trace.Tracer
+
+def acquireResource(
+  name: String
+)(implicit tracer: Tracer[IO]): Resource[IO, String] =
+  Resource.make(
+    tracer.span(s"acquire-$name").use { _ =>
+      IO.println(s"Acquiring $name").as(name)
+    }
+  )(
+    resource => tracer.span(s"release-$resource").use { _ =>
+      IO.println(s"Releasing $resource")
+    }
+  )
+```
+
+## Limitations
+
+### Not Compatible with Standard Java Agent
+
+The `IOLocalContextStorage` doesn't work with the standard [OpenTelemetry Java Agent](https://opentelemetry.io/docs/zero-code/java/agent/).
+
+<Info>
+Use the experimental [otel4s-opentelemetry-java agent](agent) instead for zero-code instrumentation with Cats Effect support.
+</Info>
+
+### Requires Fiber Context Tracking
+
+Context propagation only works when fiber context tracking is enabled:
+
+```bash
+-Dcats.effect.trackFiberContext=true
+```
+
+Without this flag, you'll get a runtime error:
+
+```
+java.lang.IllegalStateException: IOLocal propagation must be enabled with: -Dcats.effect.trackFiberContext=true
+```
+
+### Testkit Considerations
+
+The `IOLocalContextStorage` might not work correctly with some testing frameworks. If you encounter issues in tests, see the [testkit documentation](https://typelevel.org/otel4s/oteljava/testkit.html) for workarounds.
+
+## Local Provider API
+
+The `IOLocalContextStorage.localProvider` returns a `LocalProvider[F, Context]`:
+
+```scala
+trait LocalProvider[F[_], Ctx] {
+  def local: F[Local[F, Ctx]]
+}
+```
+
+This provides access to the underlying `Local` instance for advanced use cases:
+
+```scala
+import cats.mtl.Local
+import org.typelevel.otel4s.oteljava.context.Context
+
+def customContextOperation(
+  implicit local: Local[IO, Context]
+): IO[Unit] = {
+  for {
+    current <- local.ask  // Get current context
+    _       <- local.scope(operation)(modifiedContext)  // Run with modified context
+  } yield ()
+}
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Java Interop" icon="plug" href="java-interop">
+    Learn how to integrate with Java-instrumented libraries
+  </Card>
+  <Card title="Java Agent" icon="robot" href="agent">
+    Use the experimental agent for zero-code instrumentation
+  </Card>
+</CardGroup>

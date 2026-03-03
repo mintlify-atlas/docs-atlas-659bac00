@@ -1,0 +1,404 @@
+---
+title: Metrics
+description: Collect and export application metrics using otel4s instrumentation
+---
+
+Metrics provide quantitative measurements about your application's behavior over time. The `Meter` is the entry point to all metrics capabilities in otel4s, offering various instruments to record different types of measurements.
+
+## Getting Started with Meter
+
+The `Meter` is obtained from a `MeterProvider`. Currently, otel4s provides a backend built on top of OpenTelemetry Java.
+
+### Installation
+
+<Tabs>
+  <Tab title="sbt">
+    ```scala
+    libraryDependencies ++= Seq(
+      "org.typelevel" %% "otel4s-oteljava" % "@VERSION@",
+      "io.opentelemetry" % "opentelemetry-exporter-otlp" % "@OPEN_TELEMETRY_VERSION@" % Runtime,
+      "io.opentelemetry" % "opentelemetry-sdk-extension-autoconfigure" % "@OPEN_TELEMETRY_VERSION@" % Runtime
+    )
+    javaOptions += "-Dotel.java.global-autoconfigure.enabled=true"
+    ```
+  </Tab>
+  <Tab title="Scala CLI">
+    ```scala
+    //> using dep "org.typelevel::otel4s-oteljava:@VERSION@"
+    //> using dep "io.opentelemetry:opentelemetry-exporter-otlp:@OPEN_TELEMETRY_VERSION@"
+    //> using dep "io.opentelemetry:opentelemetry-sdk-extension-autoconfigure:@OPEN_TELEMETRY_VERSION@"
+    //> using javaOpt "-Dotel.java.global-autoconfigure.enabled=true"
+    ```
+  </Tab>
+</Tabs>
+
+### Creating a Meter
+
+Once configured, you can create a `Meter` instance:
+
+```scala
+import cats.effect.IO
+import org.typelevel.otel4s.metrics.Meter
+import org.typelevel.otel4s.oteljava.OtelJava
+
+OtelJava.autoConfigured[IO]().evalMap { otel4s =>
+  otel4s.meterProvider.get("com.service").flatMap { implicit meter: Meter[IO] =>
+    // use meter here
+    ???
+  }
+}
+```
+
+## Instrument Categories
+
+Metrics instruments are split into two categories:
+
+- **Synchronous** - Invoked inline with application logic
+- **Asynchronous (Observable)** - Invoked on-demand via callbacks
+
+<Note>
+  The terms "synchronous" and "asynchronous" refer to when measurements are taken, not to asynchronous programming concepts.
+</Note>
+
+## Measurement Types
+
+Instruments support `Long` and `Double` measurement types out of the box:
+
+```scala
+import org.typelevel.otel4s.metrics.Counter
+
+val doubleCounter: IO[Counter[IO, Double]] =
+  meter.counter[Double]("double-counter").create
+
+val longCounter: IO[Counter[IO, Long]] =
+  meter.counter[Long]("long-counter").create
+```
+
+### Recommended Types
+
+| Instrument              | Category     | Recommended Type |
+|-------------------------|--------------|------------------|
+| Counter                 | Synchronous  | Long             |
+| UpDownCounter           | Synchronous  | Long             |
+| Histogram               | Synchronous  | Double           |
+| ObservableCounter       | Asynchronous | Long             |
+| ObservableGauge         | Asynchronous | Double           |
+| ObservableUpDownCounter | Asynchronous | Long             |
+
+## Synchronous Instruments
+
+Synchronous instruments are invoked inline with application logic to record measurements as they happen.
+
+### Counter
+
+A **monotonic** instrument where the aggregated value nominally increases:
+
+```scala
+import org.typelevel.otel4s.metrics.Counter
+
+val counter: IO[Counter[IO, Long]] =
+  meter.counter[Long]("requests.count")
+    .withUnit("requests")
+    .withDescription("Total number of requests")
+    .create
+
+// Record measurements
+counter.flatMap { c =>
+  c.inc() *> // increment by 1
+  c.add(5L) *> // add custom value
+  c.add(10L, Attribute("status", "success")) // with attributes
+}
+```
+
+**Use cases:**
+- Request counts
+- Bytes transferred
+- Task completions
+- Error counts
+
+### UpDownCounter
+
+A **non-monotonic** instrument where the aggregated value can increase and decrease:
+
+```scala
+import org.typelevel.otel4s.metrics.UpDownCounter
+
+val upDownCounter: IO[UpDownCounter[IO, Long]] =
+  meter.upDownCounter[Long]("connections.active")
+    .withUnit("connections")
+    .withDescription("Active connection count")
+    .create
+
+upDownCounter.flatMap { c =>
+  c.inc() *> // increment when connection opens
+  c.dec() *> // decrement when connection closes
+  c.add(-5L) // subtract custom value
+}
+```
+
+**Use cases:**
+- Active connections
+- Queue size
+- Memory in use
+- Concurrent operations
+
+### Histogram
+
+Bundles a set of events into divided populations with overall event count and aggregate sum:
+
+```scala
+import java.util.concurrent.TimeUnit
+import org.typelevel.otel4s.metrics.Histogram
+
+val histogram: IO[Histogram[IO, Double]] =
+  meter.histogram[Double]("request.duration")
+    .withUnit("s")
+    .withDescription("Request duration in seconds")
+    .create
+
+histogram.flatMap { h =>
+  h.record(0.234) *> // record single value
+  h.record(1.5, Attribute("method", "GET")) *> // with attributes
+  h.recordDuration(TimeUnit.SECONDS).surround(operation) // auto-measure duration
+}
+```
+
+**Use cases:**
+- Request durations
+- Response sizes
+- Processing times
+- Latency measurements
+
+### Complete Example
+
+```scala
+import cats.Monad
+import cats.effect.{Concurrent, MonadCancelThrow, Ref}
+import cats.syntax.applicative._
+import cats.syntax.flatMap._
+import cats.syntax.functor._
+import org.typelevel.otel4s.metrics.{Counter, Histogram, Meter}
+import java.util.concurrent.TimeUnit
+
+case class User(email: String)
+
+class UserRepository[F[_]: MonadCancelThrow](
+    storage: Ref[F, Map[Long, User]],
+    missingCounter: Counter[F, Long],
+    searchDuration: Histogram[F, Double]
+) {
+  def findUser(userId: Long): F[Option[User]] =
+    searchDuration.recordDuration(TimeUnit.SECONDS).surround(
+      for {
+        current <- storage.get
+        user <- Monad[F].pure(current.get(userId))
+        _ <- missingCounter.inc().whenA(user.isEmpty)
+      } yield user
+    )
+}
+
+object UserRepository {
+  def create[F[_]: Concurrent: Meter]: F[UserRepository[F]] = {
+    for {
+      storage <- Concurrent[F].ref(Map.empty[Long, User])
+      missing <- Meter[F].counter[Long]("user.search.missing").create
+      duration <- Meter[F].histogram[Double]("user.search.duration")
+        .withUnit("s")
+        .create
+    } yield new UserRepository(storage, missing, duration)
+  }
+}
+```
+
+## Asynchronous (Observable) Instruments
+
+Asynchronous instruments register callback functions that are invoked on-demand by the metrics collection system.
+
+### ObservableCounter
+
+Monotonic asynchronous instrument:
+
+```scala
+import org.typelevel.otel4s.metrics.ObservableCounter
+import cats.effect.Resource
+
+val observableCounter: Resource[IO, ObservableCounter] =
+  meter.observableCounter[Long]("cpu.time")
+    .withUnit("ms")
+    .withDescription("Total CPU time")
+    .createWithCallback { cb =>
+      IO.delay(System.currentTimeMillis()).flatMap { time =>
+        cb.record(time, Attribute("core", "0"))
+      }
+    }
+```
+
+### ObservableUpDownCounter
+
+Non-monotonic asynchronous instrument:
+
+```scala
+val observableUpDown: Resource[IO, ObservableUpDownCounter] =
+  meter.observableUpDownCounter[Long]("memory.used")
+    .withUnit("bytes")
+    .createWithCallback { cb =>
+      IO.delay(Runtime.getRuntime.totalMemory()).flatMap { memory =>
+        cb.record(memory)
+      }
+    }
+```
+
+### ObservableGauge
+
+Records non-additive values:
+
+```scala
+val observableGauge: Resource[IO, ObservableGauge] =
+  meter.observableGauge[Double]("cpu.utilization")
+    .withUnit("1")
+    .createWithCallback { cb =>
+      IO.delay(getCpuUtilization()).flatMap { utilization =>
+        cb.record(utilization)
+      }
+    }
+```
+
+### MBean Metrics Example
+
+```scala
+import java.lang.management.ManagementFactory
+import javax.management.ObjectName
+import cats.effect.{Resource, Sync}
+import org.typelevel.otel4s.metrics.Meter
+
+object CatsEffectMetrics {
+  private val mbeanName = new ObjectName(
+    "cats.effect.metrics:type=CpuStarvation"
+  )
+
+  def register[F[_]: Sync: Meter]: Resource[F, Unit] =
+    for {
+      mBeanServer <- Resource.eval(
+        Sync[F].delay(ManagementFactory.getPlatformMBeanServer)
+      )
+      _ <- Meter[F]
+        .observableCounter[Long]("cats_effect.runtime.cpu_starvation.count")
+        .createWithCallback { cb =>
+          cb.record(
+            mBeanServer
+              .getAttribute(mbeanName, "CpuStarvationCount")
+              .asInstanceOf[Long]
+          )
+        }
+    } yield ()
+}
+```
+
+## Batch Callbacks
+
+Batch callbacks allow a single callback to observe measurements for multiple asynchronous instruments:
+
+```scala
+val metrics: Resource[IO, Unit] =
+  meter.batchCallback.of(
+    meter.observableCounter[Long]("requests").createObserver,
+    meter.observableGauge[Double]("cpu_usage").createObserver,
+    meter.observableUpDownCounter[Long]("connections").createObserver
+  ) { (requestCounter, cpuGauge, connCounter) =>
+    for {
+      requests <- getRequestCount()
+      cpu <- getCpuUsage()
+      conns <- getActiveConnections()
+      _ <- requestCounter.record(requests)
+      _ <- cpuGauge.record(cpu)
+      _ <- connCounter.record(conns)
+    } yield ()
+  }
+```
+
+## Working with Attributes
+
+Attributes add dimensions to your metrics:
+
+```scala
+import org.typelevel.otel4s.Attribute
+
+// Single attribute
+counter.add(1L, Attribute("environment", "production"))
+
+// Multiple attributes
+histogram.record(
+  123.45,
+  Attribute("method", "GET"),
+  Attribute("status", 200L),
+  Attribute("cache_hit", true)
+)
+
+// Using Attributes builder
+val attrs = Attributes(
+  Attribute("region", "us-west"),
+  Attribute("instance", "i-1234")
+)
+counter.add(5L, attrs)
+```
+
+## Best Practices
+
+1. **Choose the right instrument type**
+   - Use Counter for monotonically increasing values
+   - Use UpDownCounter for values that can go up and down
+   - Use Histogram for distributions and latencies
+
+2. **Use appropriate measurement types**
+   - Use `Long` for counts and discrete values
+   - Use `Double` for measurements with fractional values
+
+3. **Add meaningful attributes**
+   - Keep cardinality low (avoid unique identifiers)
+   - Use semantic conventions when available
+   - Make attributes useful for aggregation
+
+4. **Set units and descriptions**
+   - Always specify units ("ms", "bytes", "requests")
+   - Provide clear descriptions for better observability
+
+5. **Use observable instruments wisely**
+   - Prefer observable instruments for resource measurements
+   - Keep callbacks lightweight and fast
+   - Avoid heavy computation in callbacks
+
+6. **Leverage batch callbacks**
+   - Use batch callbacks when multiple metrics share computation
+   - Reduces overhead of multiple callback invocations
+
+## Type Signatures
+
+```scala
+trait Meter[F[_]] {
+  def meta: InstrumentMeta[F]
+  def counter[A: MeasurementValue](name: String): Counter.Builder[F, A]
+  def histogram[A: MeasurementValue](name: String): Histogram.Builder[F, A]
+  def upDownCounter[A: MeasurementValue](name: String): UpDownCounter.Builder[F, A]
+  def gauge[A: MeasurementValue](name: String): Gauge.Builder[F, A]
+  def observableCounter[A: MeasurementValue](name: String): ObservableCounter.Builder[F, A]
+  def observableGauge[A: MeasurementValue](name: String): ObservableGauge.Builder[F, A]
+  def observableUpDownCounter[A: MeasurementValue](name: String): ObservableUpDownCounter.Builder[F, A]
+  def batchCallback: BatchCallback[F]
+}
+
+trait Counter[F[_], A] {
+  def add(value: A, attributes: Attribute[_]*): F[Unit]
+  def inc(attributes: Attribute[_]*): F[Unit]
+}
+
+trait Histogram[F[_], A] {
+  def record(value: A, attributes: Attribute[_]*): F[Unit]
+  def recordDuration(timeUnit: TimeUnit): BracketProbe[F]
+}
+
+trait UpDownCounter[F[_], A] {
+  def add(value: A, attributes: Attribute[_]*): F[Unit]
+  def inc(attributes: Attribute[_]*): F[Unit]
+  def dec(attributes: Attribute[_]*): F[Unit]
+}
+```

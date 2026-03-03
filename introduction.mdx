@@ -1,0 +1,103 @@
+---
+title: Introduction
+description: An OpenTelemetry library for Scala based on Cats-Effect with idiomatic APIs for metrics, tracing, and cross-platform support
+---
+
+# otel4s
+
+## Telemetry meets higher-kinded types
+
+**otel4s** is an [OpenTelemetry](https://opentelemetry.io/) implementation for Scala. The design goal is to fully and faithfully implement the [OpenTelemetry Specification](https://opentelemetry.io/docs/reference/specification/) atop [Cats Effect](https://typelevel.org/cats-effect/).
+
+<CardGroup cols={2}>
+  <Card title="Quickstart" icon="rocket" href="/quickstart">
+    Get up and running with otel4s in minutes
+  </Card>
+  <Card title="Module structure" icon="cube" href="/modules-structure">
+    Learn about the modular architecture
+  </Card>
+  <Card title="Tracing guide" icon="route" href="/instrumentation/tracing-guide">
+    Instrument your application with distributed tracing
+  </Card>
+  <Card title="Metrics guide" icon="chart-line" href="/instrumentation/metrics-guide">
+    Collect and export application metrics
+  </Card>
+</CardGroup>
+
+## Key features
+
+### Simple and idiomatic API
+
+Provides a user-friendly and idiomatic API for telemetry, designed with Typelevel ecosystem best practices. Intuitive interfaces for metrics, tracing, and context propagation.
+
+### Minimal overhead
+
+The library utilizes metaprogramming techniques to reduce runtime costs and allocations. **Near-zero** overhead when telemetry is disabled, ensuring production performance is unaffected when tracing or metrics collection is not required.
+
+### Modularity
+
+A modular architecture allows you to include only the required components:
+
+1. **Core modules** - Designed for library instrumentation, offering a lightweight dependency footprint
+2. **Selective integration** - Use only the metrics or tracing functionality without requiring the other
+
+### Cross-platform
+
+All modules are available for Scala 2.13 and Scala 3. Core modules are available on all platforms: JVM, Scala.js, and Scala Native.
+
+### OpenTelemetry Java SDK backend
+
+The [OTel Java backend](/backends/oteljava/overview) utilizes [OpenTelemetry Java SDK](https://opentelemetry.io/docs/languages/java/) under the hood, offering production-ready telemetry:
+
+- Low memory overhead
+- Extensive [instrumentation ecosystem](https://opentelemetry.io/docs/languages/java/instrumentation/)
+- Well-tested implementation
+
+### SDK backend
+
+The [SDK backend](/backends/sdk/overview) is implemented in Scala from scratch and available for JVM, Scala.js, and Scala Native. While the implementation is compliant with the OpenTelemetry specification, it remains **experimental** and some functionality may be lacking.
+
+### Testkit
+
+A testkit simplifies the validation of telemetry behavior in applications and libraries:
+
+- Framework-agnostic, works with any test framework (weaver, munit, scalatest)
+- Ideal for testing instrumented applications in end-to-end or unit tests
+- Available for [OpenTelemetry Java](/testing/testkit-oteljava) and SDK backends
+
+## Platform support
+
+| Module / Platform | JVM | Scala Native | Scala.js |
+|:-----------------:|:---:|:------------:|:--------:|
+|   `otel4s-core`   |  ✅  |      ✅       |    ✅     |
+|   `otel4s-sdk`    |  ✅  |      ✅       |    ✅     |
+| `otel4s-oteljava` |  ✅  |      ❌       |    ❌     |
+
+## How to choose a backend
+
+For most cases, `otel4s-oteljava` is the recommended backend. It utilizes the [OpenTelemetry Java](https://opentelemetry.io/docs/languages/java/) library under the hood, allowing you to benefit from various integrations and low memory overhead.
+
+`otel4s-sdk` is an **experimental** implementation of the OpenTelemetry specification in pure Scala, available for all platforms: JVM, Scala.js, and Scala Native. However, some features are missing, and the memory overhead may be noticeable.
+
+## Status
+
+<Warning>
+The API is still highly experimental. We are actively instrumenting various libraries and applications to check for fit. Don't use it in a binary-stable library yet, but we invite you to try it out and let us know what you think.
+</Warning>
+
+## Get started
+
+<CardGroup cols={2}>
+  <Card title="Quickstart" icon="rocket" href="/quickstart">
+    Install otel4s and create your first instrumented application
+  </Card>
+  <Card title="Examples" icon="flask" href="/examples/jaeger-docker">
+    Explore working examples with Jaeger, Honeycomb, and more
+  </Card>
+  <Card title="API reference" icon="code" href="/api/tracer">
+    Browse the complete API documentation
+  </Card>
+  <Card title="Ecosystem" icon="plug" href="/ecosystem">
+    Discover libraries and integrations
+  </Card>
+</CardGroup>

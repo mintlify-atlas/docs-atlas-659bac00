@@ -1,0 +1,193 @@
+---
+title: "Honeycomb Integration"
+description: "Send metrics and traces to Honeycomb for analysis and visualization"
+---
+
+In this example, we'll use [Honeycomb](https://honeycomb.io) to collect and visualize metrics and traces produced by an otel4s application. Unlike the Jaeger example, you don't need to set up a collector service locally—telemetry is sent directly to the Honeycomb API.
+
+<Note>
+  Honeycomb offers up to 20 million spans per month for free accounts. It provides robust analysis and visualization tools that are excellent for exploring telemetry data.
+</Note>
+
+## Project Setup
+
+Configure your project with the required dependencies:
+
+<CodeGroup>
+
+```scala sbt
+// Add to build.sbt
+libraryDependencies ++= Seq(
+  "org.typelevel" %% "otel4s-oteljava" % "@VERSION@",
+  "io.opentelemetry" % "opentelemetry-exporter-otlp" % "@OPEN_TELEMETRY_VERSION@" % Runtime,
+  "io.opentelemetry" % "opentelemetry-sdk-extension-autoconfigure" % "@OPEN_TELEMETRY_VERSION@" % Runtime
+)
+
+run / fork := true
+javaOptions += "-Dotel.java.global-autoconfigure.enabled=true"
+javaOptions += "-Dotel.service.name=honeycomb-example"
+javaOptions += "-Dotel.exporter.otlp.endpoint=https://api.honeycomb.io/"
+```
+
+```scala scala-cli
+// Add to tracing.scala
+//> using dep "org.typelevel::otel4s-oteljava:@VERSION@"
+//> using dep "io.opentelemetry:opentelemetry-exporter-otlp:@OPEN_TELEMETRY_VERSION@"
+//> using dep "io.opentelemetry:opentelemetry-sdk-extension-autoconfigure:@OPEN_TELEMETRY_VERSION@"
+//> using javaOpt "-Dotel.java.global-autoconfigure.enabled=true"
+//> using javaOpt "-Dotel.service.name=honeycomb-example"
+//> using javaOpt "-Dotel.exporter.otlp.endpoint=https://api.honeycomb.io/"
+```
+
+</CodeGroup>
+
+## OpenTelemetry SDK Configuration
+
+The OpenTelemetry SDK can be configured via system properties or environment variables. See the full list of [environment variable configurations](https://opentelemetry.io/docs/languages/java/configuration) for more options.
+
+## Acquiring a Honeycomb API Key
+
+<Steps>
+
+### Create an Account
+
+Sign up at [honeycomb.io](https://ui.honeycomb.io/login).
+
+### Navigate to Settings
+
+Log into your account and go to the environment settings page.
+
+### Get Your API Key
+
+Find your generated API key in the environment settings.
+
+### Use Different Environments
+
+Create separate environments for test, production, and local development. Each will have its own API Key to organize your data in Honeycomb.
+
+</Steps>
+
+For more details, see the [Honeycomb API Keys documentation](https://docs.honeycomb.io/getting-data-in/api-keys/#find-api-keys).
+
+## Honeycomb Configuration
+
+Configure the API key and dataset name using environment variables:
+
+```bash
+export OTEL_EXPORTER_OTLP_HEADERS="x-honeycomb-team=your-api-key,x-honeycomb-dataset=otel-metrics"
+```
+
+**Headers:**
+- `x-honeycomb-team` - Your Honeycomb API key
+- `x-honeycomb-dataset` - The dataset name for metrics (defaults to `unknown_metrics` if not set)
+
+<Note>
+  Each service's traces will automatically land in a dataset named after the `otel.service.name` configuration.
+</Note>
+
+For more information, see the [Honeycomb OpenTelemetry documentation](https://docs.honeycomb.io/getting-data-in/opentelemetry-overview/).
+
+## Application Example
+
+This example demonstrates both metrics and tracing:
+
+```scala
+import java.util.concurrent.TimeUnit
+import cats.effect.{Async, IO, IOApp}
+import cats.effect.std.Console
+import cats.effect.std.Random
+import cats.syntax.all._
+import org.typelevel.otel4s.{Attribute, AttributeKey}
+import org.typelevel.otel4s.oteljava.OtelJava
+import org.typelevel.otel4s.metrics.Histogram
+import org.typelevel.otel4s.trace.Tracer
+import scala.concurrent.duration._
+
+trait Work[F[_]] {
+  def doWork: F[Unit]
+}
+
+object Work {
+  def apply[F[_]: Async: Tracer: Console](histogram: Histogram[F, Double]): Work[F] =
+    new Work[F] {
+      def doWork: F[Unit] =
+        Tracer[F].span("Work.DoWork").use { span =>
+          span.addEvent("Starting the work.") *>
+            doWorkInternal(steps = 10) *>
+            span.addEvent("Finished working.")
+        }
+
+      def doWorkInternal(steps: Int): F[Unit] = {
+        val step = Tracer[F]
+          .span("internal", Attribute(AttributeKey.long("steps"), steps.toLong))
+          .surround {
+            for {
+              random <- Random.scalaUtilRandom
+              delay <- random.nextIntBounded(1000)
+              _ <- Async[F].sleep(delay.millis)
+              _ <- Console[F].println("Doin' work")
+            } yield ()
+          }
+
+        val metered = histogram.recordDuration(TimeUnit.MILLISECONDS).surround(step)
+
+        if (steps > 0) metered *> doWorkInternal(steps - 1) else metered
+      }
+    }
+}
+
+object TracingExample extends IOApp.Simple {
+  def run: IO[Unit] = {
+    OtelJava
+      .autoConfigured[IO]()
+      .evalMap { otel4s =>
+        otel4s.tracerProvider.get("com.service.runtime")
+          .flatMap { implicit tracer: Tracer[IO] =>
+            for {
+              meter <- otel4s.meterProvider.get("com.service.runtime")
+              histogram <- meter.histogram[Double]("work.execution.duration").create
+              _ <- Work[IO](histogram).doWork
+            } yield ()
+          }
+      }
+      .use_
+  }
+}
+```
+
+## Running the Application
+
+<CodeGroup>
+
+```bash sbt
+export OTEL_EXPORTER_OTLP_HEADERS="x-honeycomb-team=your-api-key,x-honeycomb-dataset=honeycomb-example"
+sbt run
+```
+
+```bash scala-cli
+export OTEL_EXPORTER_OTLP_HEADERS="x-honeycomb-team=your-api-key,x-honeycomb-dataset=honeycomb-example"
+scala-cli run tracing.scala
+```
+
+</CodeGroup>
+
+## Viewing Data in Honeycomb
+
+Navigate to [https://ui.honeycomb.io/](https://ui.honeycomb.io/) to query and visualize your collected traces and metrics.
+
+### Traces
+
+You'll see the trace hierarchy with:
+- Parent span "Work.DoWork"
+- Nested "internal" spans
+- Events marking work start and completion
+- Attributes including the "steps" counter
+
+### Metrics
+
+The `work.execution.duration` histogram will show:
+- Execution time distribution
+- Statistical aggregations (p50, p95, p99)
+- Time-series visualization
+
+Use Honeycomb's query builder to create custom views, breakdowns, and alerts based on your telemetry data.

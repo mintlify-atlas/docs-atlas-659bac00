@@ -1,0 +1,316 @@
+---
+title: Span
+description: API reference for the Span trait, used for tracing individual operations in otel4s
+---
+
+The `Span` trait represents an individual tracing operation. There are two types of span lifecycle management: manual and auto.
+
+## Type Signature
+
+```scala
+sealed trait Span[F[_]]
+```
+
+## Lifecycle Management
+
+### Manual Lifecycle
+
+A manual span requires to be ended **explicitly** by invoking `end`. This strategy can be used when it's necessary to end a span outside of the scope (e.g., async callback).
+
+**Leaked span (incorrect):**
+
+```scala
+val tracer: Tracer[F] = ???
+val leaked: F[Unit] =
+  tracer.spanBuilder("manual-span").build.startUnmanaged.flatMap { span =>
+    span.setStatus(StatusCode.Ok, "all good")
+  } // span is never ended!
+```
+
+**Properly ended span (correct):**
+
+```scala
+val tracer: Tracer[F] = ???
+val ok: F[Unit] =
+  tracer.spanBuilder("manual-span").build.startUnmanaged.flatMap { span =>
+    span.setStatus(StatusCode.Ok, "all good") >> span.end
+  }
+```
+
+### Auto Lifecycle
+
+The auto strategy has a fully managed lifecycle. The span is started upon resource allocation and ended upon finalization.
+
+**Automatically ended span:**
+
+```scala
+val tracer: Tracer[F] = ???
+val ok: F[Unit] =
+  tracer.spanBuilder("auto-span").build.use { span =>
+    span.setStatus(StatusCode.Ok, "all good")
+  } // span automatically ended when resource is released
+```
+
+## Core Properties
+
+### backend
+
+```scala
+def backend: Span.Backend[F]
+```
+
+The backend implementation of the span.
+
+### context
+
+```scala
+def context: SpanContext
+```
+
+Returns the `SpanContext` associated with this span.
+
+### isRecording
+
+```scala
+def isRecording: F[Boolean]
+```
+
+Returns `true` if this span is recording.
+
+A recording span captures data passed through operations like `addAttributes`, `addEvent`, `recordException`, and `setStatus`.
+
+**Returns:** `F[Boolean]` - Whether the span is recording
+
+## Span Metadata
+
+### updateName
+
+```scala
+def updateName(name: String): F[Unit]
+```
+
+Updates the name of the span.
+
+<ParamField path="name" type="String" required>
+  The new name of the span
+</ParamField>
+
+**Note:** If used, this will override the name provided via the `SpanBuilder`.
+
+**Caution:** Upon this update, any sampling behavior based on span's name will depend on the implementation.
+
+## Status Management
+
+### setStatus (with status code only)
+
+```scala
+def setStatus(status: StatusCode): F[Unit]
+```
+
+Sets the status of the span.
+
+<ParamField path="status" type="StatusCode" required>
+  The status code (e.g., `StatusCode.Ok`, `StatusCode.Error`)
+</ParamField>
+
+### setStatus (with description)
+
+```scala
+def setStatus(status: StatusCode, description: String): F[Unit]
+```
+
+Sets the status of the span with a description.
+
+<ParamField path="status" type="StatusCode" required>
+  The status code
+</ParamField>
+
+<ParamField path="description" type="String" required>
+  A description of the status
+</ParamField>
+
+## Adding Data to Spans
+
+### addAttributes
+
+```scala
+def addAttributes(attributes: immutable.Iterable[Attribute[_]]): F[Unit]
+```
+
+Adds attributes to the span.
+
+<ParamField path="attributes" type="immutable.Iterable[Attribute[_]]" required>
+  The attributes to add
+</ParamField>
+
+**Example:**
+
+```scala
+span.addAttributes(
+  Attribute("http.method", "GET"),
+  Attribute("http.url", "https://example.com")
+)
+```
+
+### addEvent (with attributes)
+
+```scala
+def addEvent(
+    name: String,
+    attributes: immutable.Iterable[Attribute[_]]
+): F[Unit]
+```
+
+Adds an event to the span with attributes.
+
+<ParamField path="name" type="String" required>
+  The name of the event
+</ParamField>
+
+<ParamField path="attributes" type="immutable.Iterable[Attribute[_]]" required>
+  The attributes associated with the event
+</ParamField>
+
+### addEvent (with timestamp)
+
+```scala
+def addEvent(
+    name: String,
+    timestamp: FiniteDuration,
+    attributes: immutable.Iterable[Attribute[_]]
+): F[Unit]
+```
+
+Adds an event to the span with a custom timestamp and attributes.
+
+<ParamField path="name" type="String" required>
+  The name of the event
+</ParamField>
+
+<ParamField path="timestamp" type="FiniteDuration" required>
+  The explicit timestamp from the epoch
+</ParamField>
+
+<ParamField path="attributes" type="immutable.Iterable[Attribute[_]]" required>
+  The attributes associated with the event
+</ParamField>
+
+**Note:** The timestamp should be based on `Clock[F].realTime`. Using `Clock[F].monotonic` may lead to issues.
+
+### addLink
+
+```scala
+def addLink(
+    spanContext: SpanContext,
+    attributes: immutable.Iterable[Attribute[_]]
+): F[Unit]
+```
+
+Adds a link to another span.
+
+<ParamField path="spanContext" type="SpanContext" required>
+  The context of the span to link to
+</ParamField>
+
+<ParamField path="attributes" type="immutable.Iterable[Attribute[_]]" required>
+  The attributes associated with the link
+</ParamField>
+
+### recordException
+
+```scala
+def recordException(
+    exception: Throwable,
+    attributes: immutable.Iterable[Attribute[_]]
+): F[Unit]
+```
+
+Records an exception as an event on the span.
+
+<ParamField path="exception" type="Throwable" required>
+  The exception to record
+</ParamField>
+
+<ParamField path="attributes" type="immutable.Iterable[Attribute[_]]" required>
+  Additional attributes to associate with the exception
+</ParamField>
+
+## Ending a Span
+
+### end
+
+```scala
+def end: F[Unit]
+```
+
+Marks the end of span execution.
+
+Only the timing of the first end call for a given span will be recorded; subsequent calls will be ignored.
+
+The end timestamp is based on `Clock[F].realTime`.
+
+### end (with timestamp)
+
+```scala
+def end(timestamp: FiniteDuration): F[Unit]
+```
+
+Marks the end of span execution with a specified timestamp.
+
+<ParamField path="timestamp" type="FiniteDuration" required>
+  The explicit timestamp from the epoch
+</ParamField>
+
+Only the timing of the first end call for a given span will be recorded; subsequent calls will be ignored.
+
+**Note:** The timestamp should be based on `Clock[F].realTime`. Using `Clock[F].monotonic` may lead to a missing span.
+
+## Transformation
+
+### mapK
+
+```scala
+def mapK[G[_]](f: F ~> G): Span[G]
+```
+
+Modifies the context `F` using the transformation `f`.
+
+<ParamField path="f" type="F ~> G" required>
+  Natural transformation from F to G
+</ParamField>
+
+**Returns:** `Span[G]` - A span with the transformed effect type
+
+### liftTo
+
+```scala
+def liftTo[G[_]](implicit kt: KindTransformer[F, G]): Span[G]
+```
+
+Modifies the context `F` using an implicit `KindTransformer` from `F` to `G`.
+
+<ParamField path="G" type="Type Parameter" required>
+  The target effect type
+</ParamField>
+
+**Returns:** `Span[G]` - A span with the transformed effect type
+
+## Span Backend
+
+The `Span.Backend` trait provides the low-level implementation of span operations.
+
+### Creating Backends
+
+```scala
+// No-op backend
+Span.Backend.noop[F]
+
+// Propagating backend (holds SpanContext but operations are no-op)
+Span.Backend.propagating[F](meta, context)
+```
+
+## See Also
+
+- [Tracer](/api/tracer) - Creating and managing spans
+- [SpanBuilder](/api/span-builder) - Building customized spans
+- [Attributes](/api/attributes) - Adding metadata to spans

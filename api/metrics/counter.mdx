@@ -1,0 +1,111 @@
+---
+title: Counter
+description: Monotonic counter instrument for recording increasing values
+---
+
+A `Counter` instrument that records values of type `A`.
+
+The `Counter` is monotonic, meaning the aggregated value is nominally increasing.
+
+## Type Signature
+
+```scala
+trait Counter[F[_], A]
+```
+
+**Type Parameters:**
+- `F[_]` - the higher-kinded type of a polymorphic effect
+- `A` - the type of values to record. Must have a `MeasurementValue` instance. `Long` and `Double` are supported out of the box.
+
+## Creating a Counter
+
+Counters are created using the `Meter` API:
+
+```scala
+val meter: Meter[IO] = ???
+
+val counter: IO[Counter[IO, Long]] =
+  meter.counter[Long]("request.count")
+    .withUnit("requests")
+    .withDescription("Total number of requests")
+    .create
+```
+
+## Backend Methods
+
+### add
+
+Records a value with a set of attributes.
+
+<ParamField path="value" type="A" required>
+  The value to increment the counter with. Must be non-negative.
+</ParamField>
+
+<ParamField path="attributes" type="immutable.Iterable[Attribute[_]]" required>
+  The set of attributes to associate with the value.
+</ParamField>
+
+**Returns:** `F[Unit]`
+
+**Example:**
+```scala
+counter.flatMap { c =>
+  c.add(
+    5L,
+    Attribute(AttributeKey.string("http.method"), "GET")
+  )
+}
+```
+
+### inc
+
+Increments the counter by one.
+
+<ParamField path="attributes" type="immutable.Iterable[Attribute[_]]" required>
+  The set of attributes to associate with the value.
+</ParamField>
+
+**Returns:** `F[Unit]`
+
+**Example:**
+```scala
+counter.flatMap { c =>
+  c.inc(Attribute(AttributeKey.string("http.method"), "GET"))
+}
+```
+
+## Builder Methods
+
+### withUnit
+
+Sets the unit of measure for this counter.
+
+<ParamField path="unit" type="String" required>
+  The measurement unit. Must be 63 or fewer ASCII characters.
+</ParamField>
+
+**Returns:** `Counter.Builder[F, A]`
+
+**Reference:** [Instrument Unit](https://github.com/open-telemetry/opentelemetry-specification/blob/main/specification/metrics/api.md#instrument-unit)
+
+### withDescription
+
+Sets the description for this counter.
+
+<ParamField path="description" type="String" required>
+  The description of the counter.
+</ParamField>
+
+**Returns:** `Counter.Builder[F, A]`
+
+**Reference:** [Instrument Description](https://github.com/open-telemetry/opentelemetry-specification/blob/main/specification/metrics/api.md#instrument-description)
+
+### create
+
+Creates a `Counter` with the configured unit and description.
+
+**Returns:** `F[Counter[F, A]]`
+
+## See Also
+
+- [UpDownCounter](/api/metrics/up-down-counter) - for non-monotonic counters

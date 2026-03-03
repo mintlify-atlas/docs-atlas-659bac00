@@ -1,122 +1,135 @@
 {
   "$schema": "https://mintlify.com/docs.json",
-  "theme": "mint",
-  "name": "Mint Starter Kit",
+  "name": "otel4s",
+  "theme": "palm",
   "colors": {
-    "primary": "#16A34A",
-    "light": "#07C983",
-    "dark": "#15803D"
+    "primary": "#FF6169",
+    "light": "#FF8A90",
+    "dark": "#E5545A"
   },
-  "favicon": "/favicon.svg",
+  "navbar": {
+    "primary": {
+      "type": "github",
+      "href": "https://github.com/typelevel/otel4s"
+    }
+  },
+  "footer": {
+    "socials": {
+      "github": "https://github.com/typelevel/otel4s"
+    }
+  },
   "navigation": {
     "tabs": [
       {
-        "tab": "Guides",
+        "tab": "Documentation",
         "groups": [
           {
-            "group": "Getting started",
+            "group": "Get Started",
             "pages": [
-              "index",
+              "introduction",
               "quickstart",
-              "development"
+              "modules-structure"
             ]
           },
           {
-            "group": "Customization",
+            "group": "Core Concepts",
             "pages": [
-              "essentials/settings",
-              "essentials/navigation"
+              "concepts/tracing",
+              "concepts/metrics",
+              "concepts/logs",
+              "concepts/context-propagation"
             ]
           },
           {
-            "group": "Writing content",
+            "group": "Backends",
             "pages": [
-              "essentials/markdown",
-              "essentials/code",
-              "essentials/images",
-              "essentials/reusable-snippets"
+              "backends/oteljava/overview",
+              "backends/oteljava/configuration",
+              "backends/oteljava/context-propagation",
+              "backends/oteljava/java-interop",
+              "backends/oteljava/jvm-runtime-metrics",
+              "backends/oteljava/agent",
+              "backends/sdk/overview"
             ]
           },
           {
-            "group": "AI tools",
+            "group": "Instrumentation",
             "pages": [
-              "ai-tools/cursor",
-              "ai-tools/claude-code",
-              "ai-tools/windsurf"
+              "instrumentation/tracing-guide",
+              "instrumentation/metrics-guide",
+              "instrumentation/logs-guide",
+              "instrumentation/baggage",
+              "instrumentation/semantic-conventions",
+              "instrumentation/cross-service-propagation",
+              "instrumentation/cats-effect-runtime"
+            ]
+          },
+          {
+            "group": "Testing",
+            "pages": [
+              "testing/testkit-oteljava",
+              "testing/testkit-sdk"
+            ]
+          },
+          {
+            "group": "Examples",
+            "pages": [
+              "examples/jaeger-docker",
+              "examples/honeycomb",
+              "examples/grafana",
+              "examples/dash0"
+            ]
+          },
+          {
+            "group": "Ecosystem",
+            "pages": [
+              "ecosystem"
             ]
           }
         ]
       },
       {
-        "tab": "API reference",
+        "tab": "API Reference",
         "groups": [
           {
-            "group": "API documentation",
+            "group": "Core API",
             "pages": [
-              "api-reference/introduction"
+              "api/tracer",
+              "api/meter",
+              "api/span",
+              "api/attributes",
+              "api/context"
             ]
           },
           {
-            "group": "Endpoint examples",
+            "group": "Tracing",
             "pages": [
-              "api-reference/endpoint/get",
-              "api-reference/endpoint/create",
-              "api-reference/endpoint/delete",
-              "api-reference/endpoint/webhook"
+              "api/tracing/tracer-provider",
+              "api/tracing/span-builder",
+              "api/tracing/span-context"
+            ]
+          },
+          {
+            "group": "Metrics",
+            "pages": [
+              "api/metrics/meter-provider",
+              "api/metrics/counter",
+              "api/metrics/histogram",
+              "api/metrics/up-down-counter",
+              "api/metrics/gauge",
+              "api/metrics/observable"
+            ]
+          },
+          {
+            "group": "Propagation",
+            "pages": [
+              "api/propagation/context-propagators",
+              "api/propagation/text-map-propagator",
+              "api/propagation/baggage"
             ]
           }
         ]
       }
-    ],
-    "global": {
-      "anchors": [
-        {
-          "anchor": "Documentation",
-          "href": "https://mintlify.com/docs",
-          "icon": "book-open-cover"
-        },
-        {
-          "anchor": "Blog",
-          "href": "https://mintlify.com/blog",
-          "icon": "newspaper"
-        }
-      ]
-    }
-  },
-  "logo": {
-    "light": "/logo/light.svg",
-    "dark": "/logo/dark.svg"
-  },
-  "navbar": {
-    "links": [
-      {
-        "label": "Support",
-        "href": "mailto:hi@mintlify.com"
-      }
-    ],
-    "primary": {
-      "type": "button",
-      "label": "Dashboard",
-      "href": "https://dashboard.mintlify.com"
-    }
-  },
-  "contextual": {
-    "options": [
-     "copy",
-     "view",
-     "chatgpt",
-     "claude",
-     "perplexity",
-     "mcp",
-     "cursor",
-     "vscode"
-   ]
-  },
-  "footer": {
-    "socials": {
-      "x": "https://x.com/mintlify",
-      "github": "https://github.com/mintlify",
-      "linkedin": "https://linkedin.com/company/mintlify"
-    }
+    ]
   }
 }

@@ -1,0 +1,255 @@
+---
+title: Configuration
+description: Configure the OTel Java backend using environment variables and system properties
+---
+
+The `otel4s-oteljava` backend can be configured through environment variables and system properties, following the OpenTelemetry Java SDK conventions.
+
+## Configuration Methods
+
+There are two primary ways to configure the SDK:
+
+1. **Environment variables** - Set environment variables before running your application
+2. **System properties** - Pass JVM system properties with `-D` flags
+
+<Note>
+Environment variables take precedence over system properties.
+</Note>
+
+## Essential Configuration
+
+### Service Name
+
+The service name identifies your application in traces and metrics:
+
+```bash
+export OTEL_SERVICE_NAME=my-service
+# or
+-Dotel.service.name=my-service
+```
+
+### Exporter Configuration
+
+Configure where to send telemetry data:
+
+```bash
+# OTLP endpoint (default: http://localhost:4317)
+export OTEL_EXPORTER_OTLP_ENDPOINT=http://collector:4317
+
+# Protocol (grpc or http/protobuf)
+export OTEL_EXPORTER_OTLP_PROTOCOL=grpc
+
+# Headers (for authentication)
+export OTEL_EXPORTER_OTLP_HEADERS="api-key=your-key"
+```
+
+### Signal-Specific Endpoints
+
+You can configure different endpoints for traces, metrics, and logs:
+
+```bash
+export OTEL_EXPORTER_OTLP_TRACES_ENDPOINT=http://traces.example.com:4317
+export OTEL_EXPORTER_OTLP_METRICS_ENDPOINT=http://metrics.example.com:4317
+export OTEL_EXPORTER_OTLP_LOGS_ENDPOINT=http://logs.example.com:4317
+```
+
+## Resource Attributes
+
+Resource attributes provide additional metadata about your service:
+
+```bash
+export OTEL_RESOURCE_ATTRIBUTES="service.name=my-service,service.version=1.0.0,deployment.environment=production"
+```
+
+### Common Resource Attributes
+
+| Attribute | Description | Example |
+|-----------|-------------|----------|
+| `service.name` | Service name | `auth-service` |
+| `service.version` | Service version | `1.2.3` |
+| `deployment.environment` | Deployment environment | `production` |
+| `service.namespace` | Service namespace | `shop` |
+| `service.instance.id` | Unique instance ID | `instance-001` |
+
+## Sampling Configuration
+
+### Trace Sampling
+
+Control which traces are recorded:
+
+```bash
+# Always on (record all traces)
+export OTEL_TRACES_SAMPLER=always_on
+
+# Always off (record no traces)
+export OTEL_TRACES_SAMPLER=always_off
+
+# Trace ID ratio (record 10% of traces)
+export OTEL_TRACES_SAMPLER=traceidratio
+export OTEL_TRACES_SAMPLER_ARG=0.1
+
+# Parent-based (respect parent span's sampling decision)
+export OTEL_TRACES_SAMPLER=parentbased_always_on
+```
+
+### Available Samplers
+
+- `always_on` - Sample all traces
+- `always_off` - Sample no traces
+- `traceidratio` - Sample a percentage of traces
+- `parentbased_always_on` - Respect parent, otherwise always on
+- `parentbased_always_off` - Respect parent, otherwise always off
+- `parentbased_traceidratio` - Respect parent, otherwise use ratio
+
+## Batch Processor Configuration
+
+### Span Exporter
+
+```bash
+# Maximum queue size
+export OTEL_BSP_MAX_QUEUE_SIZE=2048
+
+# Maximum batch size
+export OTEL_BSP_MAX_EXPORT_BATCH_SIZE=512
+
+# Export timeout (milliseconds)
+export OTEL_BSP_EXPORT_TIMEOUT=30000
+
+# Schedule delay (milliseconds)
+export OTEL_BSP_SCHEDULE_DELAY=5000
+```
+
+### Metric Reader
+
+```bash
+# Export interval (milliseconds)
+export OTEL_METRIC_EXPORT_INTERVAL=60000
+
+# Export timeout (milliseconds)
+export OTEL_METRIC_EXPORT_TIMEOUT=30000
+```
+
+## Propagation Configuration
+
+Configure context propagation formats:
+
+```bash
+# Use W3C Trace Context and Baggage
+export OTEL_PROPAGATORS=tracecontext,baggage
+
+# Use multiple propagators
+export OTEL_PROPAGATORS=tracecontext,baggage,b3,b3multi
+```
+
+### Available Propagators
+
+- `tracecontext` - W3C Trace Context
+- `baggage` - W3C Baggage
+- `b3` - B3 Single Header
+- `b3multi` - B3 Multi Header
+- `jaeger` - Jaeger
+- `xray` - AWS X-Ray
+- `ottrace` - OT Trace
+
+## SDK Configuration
+
+### Enable/Disable Signals
+
+```bash
+# Disable specific signals
+export OTEL_TRACES_EXPORTER=none
+export OTEL_METRICS_EXPORTER=none
+export OTEL_LOGS_EXPORTER=none
+```
+
+### Autoconfigure
+
+```bash
+# Enable global autoconfigure
+-Dotel.java.global-autoconfigure.enabled=true
+```
+
+## Programmatic Configuration
+
+You can customize the autoconfiguration programmatically:
+
+```scala
+import cats.effect.{IO, IOApp, Resource}
+import io.opentelemetry.sdk.autoconfigure.AutoConfiguredOpenTelemetrySdkBuilder
+import org.typelevel.otel4s.oteljava.OtelJava
+
+object CustomConfigApp extends IOApp.Simple {
+  
+  def customize(
+    builder: AutoConfiguredOpenTelemetrySdkBuilder
+  ): AutoConfiguredOpenTelemetrySdkBuilder = {
+    builder
+      .addPropertiesSupplier(() => Map(
+        "otel.service.name" -> "custom-service",
+        "otel.traces.sampler" -> "always_on"
+      ).asJava)
+  }
+  
+  def run: IO[Unit] =
+    OtelJava.autoConfigured[IO](customize).use { otel4s =>
+      // Your application logic
+      ???
+    }
+}
+```
+
+## Environment-Specific Configuration
+
+### Development
+
+```bash
+export OTEL_SERVICE_NAME=my-service
+export OTEL_TRACES_EXPORTER=logging
+export OTEL_METRICS_EXPORTER=logging
+export OTEL_LOGS_EXPORTER=logging
+export OTEL_TRACES_SAMPLER=always_on
+```
+
+### Production
+
+```bash
+export OTEL_SERVICE_NAME=my-service
+export OTEL_EXPORTER_OTLP_ENDPOINT=http://collector:4317
+export OTEL_EXPORTER_OTLP_PROTOCOL=grpc
+export OTEL_RESOURCE_ATTRIBUTES="deployment.environment=production,service.version=1.0.0"
+export OTEL_TRACES_SAMPLER=parentbased_traceidratio
+export OTEL_TRACES_SAMPLER_ARG=0.1
+```
+
+## Complete Configuration Reference
+
+For the complete list of configuration options, see the [OpenTelemetry Java SDK Configuration](https://opentelemetry.io/docs/languages/java/configuration/#environment-variables-and-system-properties) documentation.
+
+## Troubleshooting
+
+### Enable Debug Logging
+
+```bash
+export OTEL_JAVAAGENT_DEBUG=true
+```
+
+### Validate Configuration
+
+The SDK will log configuration errors on startup. Check your application logs for messages like:
+
+```
+[otel.javaagent] INFO - Using service name: my-service
+[otel.javaagent] INFO - Exporter: otlp
+[otel.javaagent] ERROR - Failed to configure exporter
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Context Propagation" icon="shuffle" href="context-propagation">
+    Configure context propagation for Cats Effect
+  </Card>
+  <Card title="Java Agent" icon="robot" href="agent">
+    Use zero-code instrumentation
+  </Card>
+</CardGroup>

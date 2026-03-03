@@ -1,0 +1,95 @@
+---
+title: Gauge
+description: Instrument for recording non-additive values
+---
+
+A `Gauge` instrument that records non-additive values of type `A`.
+
+Gauges are used to record values that are not additive, such as room temperature or CPU usage.
+
+## Type Signature
+
+```scala
+trait Gauge[F[_], A]
+```
+
+**Type Parameters:**
+- `F[_]` - the higher-kinded type of a polymorphic effect
+- `A` - the type of values to record. Must have a `MeasurementValue` instance. `Long` and `Double` are supported out of the box.
+
+## Creating a Gauge
+
+Gauges are created using the `Meter` API:
+
+```scala
+val meter: Meter[IO] = ???
+
+val gauge: IO[Gauge[IO, Double]] =
+  meter.gauge[Double]("cpu.usage")
+    .withUnit("%")
+    .withDescription("Current CPU usage percentage")
+    .create
+```
+
+## Backend Methods
+
+### record
+
+Records a value with a set of attributes.
+
+<ParamField path="value" type="A" required>
+  The value to record.
+</ParamField>
+
+<ParamField path="attributes" type="immutable.Iterable[Attribute[_]]" required>
+  The set of attributes to associate with the value.
+</ParamField>
+
+**Returns:** `F[Unit]`
+
+**Example:**
+```scala
+gauge.flatMap { g =>
+  g.record(
+    75.5,
+    Attribute(AttributeKey.string("cpu.core"), "core-0")
+  )
+}
+```
+
+## Builder Methods
+
+### withUnit
+
+Sets the unit of measure for this gauge.
+
+<ParamField path="unit" type="String" required>
+  The measurement unit. Must be 63 or fewer ASCII characters.
+</ParamField>
+
+**Returns:** `Gauge.Builder[F, A]`
+
+**Reference:** [Instrument Unit](https://github.com/open-telemetry/opentelemetry-specification/blob/main/specification/metrics/api.md#instrument-unit)
+
+### withDescription
+
+Sets the description for this gauge.
+
+<ParamField path="description" type="String" required>
+  The description of the gauge.
+</ParamField>
+
+**Returns:** `Gauge.Builder[F, A]`
+
+**Reference:** [Instrument Description](https://github.com/open-telemetry/opentelemetry-specification/blob/main/specification/metrics/api.md#instrument-description)
+
+### create
+
+Creates a `Gauge` with the configured unit and description.
+
+**Returns:** `F[Gauge[F, A]]`
+
+## See Also
+
+- [UpDownCounter](/api/metrics/up-down-counter) - for recording additive values
+- [OpenTelemetry Gauge Specification](https://opentelemetry.io/docs/specs/otel/metrics/api/#gauge)

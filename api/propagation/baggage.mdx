@@ -1,0 +1,320 @@
+---
+title: Baggage
+description: Attach contextual information that propagates across service boundaries
+---
+
+`Baggage` is used to attach log messages or debugging information to the context. It allows you to propagate key-value pairs across service boundaries alongside trace context.
+
+## Overview
+
+Baggage provides a way to carry user-defined metadata across process boundaries. Unlike trace context, which is used for correlation, baggage is designed to carry application-specific data that needs to be available throughout a distributed transaction.
+
+**References:**
+- [OpenTelemetry Baggage API Specification](https://opentelemetry.io/docs/specs/otel/baggage/api/)
+- [OpenTelemetry Baggage Concepts](https://opentelemetry.io/docs/concepts/signals/baggage/)
+- [W3C Baggage Specification](https://www.w3.org/TR/baggage/)
+
+## Methods
+
+### get
+
+```scala
+def get(key: String): Option[Baggage.Entry]
+```
+
+<ParamField name="key" type="String" required>
+  The key to look up in the baggage
+</ParamField>
+
+Returns the entry to which the specified key is mapped, or `None` if this baggage contains no mapping for the key.
+
+**Returns:** `Some(entry)` if the key exists, `None` otherwise
+
+**Example:**
+
+```scala
+val entry = baggage.get("user-id")
+entry.foreach(e => println(s"User ID: ${e.value}"))
+```
+
+### updated (with metadata option)
+
+```scala
+def updated(key: String, value: String, metadata: Option[String]): Baggage
+```
+
+<ParamField name="key" type="String" required>
+  The key for the entry
+</ParamField>
+
+<ParamField name="value" type="String" required>
+  The value for the entry to associate with the key
+</ParamField>
+
+<ParamField name="metadata" type="Option[String]" required>
+  Optional metadata to associate with the key
+</ParamField>
+
+Adds or updates the entry that has the given key.
+
+**Returns:** A new `Baggage` instance with the updated entry
+
+### updated (with metadata)
+
+```scala
+def updated(key: String, value: String, metadata: String): Baggage
+```
+
+<ParamField name="key" type="String" required>
+  The key for the entry
+</ParamField>
+
+<ParamField name="value" type="String" required>
+  The value for the entry to associate with the key
+</ParamField>
+
+<ParamField name="metadata" type="String" required>
+  Metadata to associate with the key
+</ParamField>
+
+Adds or updates the entry that has the given key with the specified metadata.
+
+**Returns:** A new `Baggage` instance with the updated entry
+
+**Example:**
+
+```scala
+val updated = baggage.updated("request-id", "abc123", "sensitive")
+```
+
+### updated (without metadata)
+
+```scala
+def updated(key: String, value: String): Baggage
+```
+
+<ParamField name="key" type="String" required>
+  The key for the entry
+</ParamField>
+
+<ParamField name="value" type="String" required>
+  The value for the entry to associate with the key
+</ParamField>
+
+Adds or updates the entry that has the given key without any metadata.
+
+**Returns:** A new `Baggage` instance with the updated entry
+
+**Example:**
+
+```scala
+val updated = baggage.updated("user-id", "user-123")
+```
+
+### removed
+
+```scala
+def removed(key: String): Baggage
+```
+
+<ParamField name="key" type="String" required>
+  The key for the entry to be removed
+</ParamField>
+
+Removes the entry that has the given key if it is present.
+
+**Returns:** A new `Baggage` instance without the specified entry
+
+**Example:**
+
+```scala
+val updated = baggage.removed("temporary-flag")
+```
+
+### size
+
+```scala
+def size: Int
+```
+
+Returns the number of entries in this baggage.
+
+**Example:**
+
+```scala
+println(s"Baggage contains ${baggage.size} entries")
+```
+
+### isEmpty
+
+```scala
+def isEmpty: Boolean
+```
+
+Returns whether this baggage is empty, containing no entries.
+
+**Example:**
+
+```scala
+if (baggage.isEmpty) {
+  println("No baggage entries")
+}
+```
+
+### asMap
+
+```scala
+def asMap: Map[String, Baggage.Entry]
+```
+
+Returns a map representation of this baggage.
+
+**Returns:** A `Map` containing all baggage entries keyed by their names
+
+**Example:**
+
+```scala
+baggage.asMap.foreach { case (key, entry) =>
+  println(s"$key = ${entry.value}")
+}
+```
+
+## Factory Methods
+
+### empty
+
+```scala
+def empty: Baggage
+```
+
+Creates an empty `Baggage` instance with no entries.
+
+**Example:**
+
+```scala
+val baggage = Baggage.empty
+  .updated("user-id", "123")
+  .updated("request-id", "abc")
+```
+
+## Nested Types
+
+### Baggage.Entry
+
+Represents an entry that the `Baggage` holds associated with a key.
+
+#### Properties
+
+<ParamField name="value" type="String" required>
+  The value of the entry
+</ParamField>
+
+<ParamField name="metadata" type="Option[Metadata]" required>
+  The optional metadata of the entry
+</ParamField>
+
+#### Factory Method
+
+```scala
+def apply(value: String, metadata: Option[Metadata]): Entry
+```
+
+Creates a new `Entry` with the specified value and optional metadata.
+
+### Baggage.Metadata
+
+An opaque wrapper for a string that represents metadata for a baggage entry.
+
+#### Properties
+
+<ParamField name="value" type="String" required>
+  The string value of the metadata
+</ParamField>
+
+#### Factory Method
+
+```scala
+def apply(value: String): Metadata
+```
+
+Creates a new `Metadata` instance wrapping the given string value.
+
+## Type Class Instances
+
+### Hash
+
+`Baggage` has a `Hash` instance from Cats, allowing for equality comparisons and hashing based on the baggage's entries.
+
+### Show
+
+`Baggage` has a `Show` instance that formats the baggage as:
+
+```
+Baggage{key1=value1,key2=value2;metadata}
+```
+
+## Usage Examples
+
+### Creating and updating baggage
+
+```scala
+import org.typelevel.otel4s.baggage.Baggage
+
+// Start with empty baggage
+val baggage = Baggage.empty
+  .updated("user-id", "user-123")
+  .updated("tenant-id", "tenant-456")
+  .updated("feature-flag", "enabled", "experimental")
+
+println(baggage.size) // 3
+```
+
+### Retrieving values
+
+```scala
+baggage.get("user-id") match {
+  case Some(entry) => println(s"User ID: ${entry.value}")
+  case None => println("User ID not found")
+}
+```
+
+### Removing entries
+
+```scala
+val updated = baggage.removed("feature-flag")
+println(updated.size) // 2
+```
+
+### Iterating over entries
+
+```scala
+baggage.asMap.foreach { case (key, entry) =>
+  entry.metadata match {
+    case Some(meta) => println(s"$key = ${entry.value} (${meta.value})")
+    case None => println(s"$key = ${entry.value}")
+  }
+}
+```
+
+### Working with metadata
+
+```scala
+import org.typelevel.otel4s.baggage.Baggage
+
+val metadata = Baggage.Metadata("sensitive")
+val entry = Baggage.Entry("secret-value", Some(metadata))
+
+val baggage = Baggage.empty.updated("api-key", "key-123", "confidential")
+
+baggage.get("api-key").foreach { entry =>
+  println(s"Value: ${entry.value}")
+  entry.metadata.foreach(m => println(s"Metadata: ${m.value}"))
+}
+```
+
+## Best Practices
+
+1. **Keep baggage small**: Baggage is propagated with every request, so keep the number and size of entries minimal
+2. **Avoid sensitive data**: Unless properly secured, baggage may be logged or exposed in headers
+3. **Use metadata wisely**: Metadata can indicate properties like whether data is sensitive or its purpose
+4. **Immutability**: All operations return new `Baggage` instances; the original is never modified

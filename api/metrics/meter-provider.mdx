@@ -1,0 +1,63 @@
+---
+title: MeterProvider
+description: Registry for creating named Meter instances in otel4s
+---
+
+A registry for creating named `Meter` instances.
+
+## Type Signature
+
+```scala
+trait MeterProvider[F[_]]
+```
+
+## Methods
+
+### get
+
+Creates a named `Meter`.
+
+<ParamField path="name" type="String" required>
+  The name of the instrumentation scope, such as the instrumentation library, package, or fully qualified class name.
+</ParamField>
+
+**Returns:** `F[Meter[F]]`
+
+**Example:**
+```scala
+val meterProvider: MeterProvider[IO] = ???
+val meter: IO[Meter[IO]] = meterProvider.get("com.service.runtime")
+```
+
+### meter
+
+Creates a `MeterBuilder` for a named `Meter` instance.
+
+<ParamField path="name" type="String" required>
+  The name of the instrumentation scope, such as the instrumentation library, package, or fully qualified class name.
+</ParamField>
+
+**Returns:** `MeterBuilder[F]`
+
+**Example:**
+```scala
+val meterProvider: MeterProvider[IO] = ???
+val meter: IO[Meter[IO]] = meterProvider
+  .meter("com.service.runtime")
+  .withVersion("1.0.0")
+  .withSchemaUrl("https://opentelemetry.io/schema/v1.1.0")
+  .get
+```
+
+## Companion Object Methods
+
+### noop
+
+Creates a no-op implementation of the `MeterProvider`.
+
+**Type Signature:**
+```scala
+def noop[F[_]: Applicative]: MeterProvider[F]
+```
+
+**Returns:** A no-op `MeterProvider[F]` where all operations are no-ops.

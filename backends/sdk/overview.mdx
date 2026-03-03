@@ -1,0 +1,196 @@
+---
+title: SDK Backend - Overview
+description: Pure Scala implementation of OpenTelemetry SDK for JVM, Scala Native, and Scala.js
+---
+
+The SDK modules provide an alternative to the [otel4s-oteljava](/backends/oteljava/overview) implementation. All modules are implemented in pure Scala and available for all platforms: JVM, Scala Native, and Scala.js.
+
+<Warning>
+The SDK implementation remains **experimental** and some functionality may be lacking.
+</Warning>
+
+## New Location
+
+The SDK modules have been moved to a separate repository and documentation site.
+
+<Card 
+  title="otel4s-sdk Documentation" 
+  icon="book-open" 
+  href="https://typelevel.org/otel4s-sdk/sdk/overview.html"
+>
+  Visit the dedicated otel4s-sdk documentation for installation, configuration, and usage guides.
+</Card>
+
+## Why Use the SDK Backend?
+
+The pure Scala SDK implementation offers several advantages:
+
+### Cross-Platform Support
+
+- **JVM** - Full compatibility with Java ecosystem
+- **Scala Native** - Native executables with minimal overhead
+- **Scala.js** - Browser-based and Node.js applications
+
+### Pure Scala Implementation
+
+- No Java dependencies required
+- Better integration with Scala ecosystem
+- Idiomatic Scala APIs
+
+### Lightweight
+
+- Minimal dependencies
+- Smaller binary size
+- Suitable for resource-constrained environments
+
+## When to Use Each Backend
+
+### Use otel4s-oteljava when:
+
+- Running on the JVM
+- Need access to Java instrumentation ecosystem
+- Require production-ready, battle-tested implementation
+- Want to use the Java Agent for zero-code instrumentation
+- Need to integrate with Java libraries
+
+### Use otel4s-sdk when:
+
+- Targeting Scala Native or Scala.js
+- Want a pure Scala implementation
+- Need cross-platform compatibility
+- Building lightweight services
+- Willing to work with experimental features
+
+## Migration Path
+
+The otel4s API remains consistent across backends, making it straightforward to switch:
+
+<CodeGroup>
+```scala OTel Java
+libraryDependencies ++= Seq(
+  "org.typelevel" %% "otel4s-oteljava" % "@VERSION@",
+  "io.opentelemetry" % "opentelemetry-exporter-otlp" % "@OPEN_TELEMETRY_VERSION@" % Runtime,
+  "io.opentelemetry" % "opentelemetry-sdk-extension-autoconfigure" % "@OPEN_TELEMETRY_VERSION@" % Runtime
+)
+```
+
+```scala SDK
+libraryDependencies ++= Seq(
+  "org.typelevel" %% "otel4s-sdk" % "@VERSION@",
+  "org.typelevel" %% "otel4s-sdk-exporter" % "@VERSION@"
+)
+```
+</CodeGroup>
+
+The application code using the otel4s API typically requires minimal changes:
+
+```scala
+import cats.effect.{IO, IOApp}
+import org.typelevel.otel4s.trace.Tracer
+
+// This code works with both backends
+def program(implicit tracer: Tracer[IO]): IO[Unit] =
+  tracer.span("operation").use { span =>
+    span.addAttribute("key", "value") >>
+      IO.println("Hello, OpenTelemetry!")
+  }
+```
+
+## Feature Comparison
+
+| Feature | otel4s-oteljava | otel4s-sdk |
+|---------|-----------------|------------|
+| **Platforms** | JVM only | JVM, Native, Scala.js |
+| **Stability** | Production-ready | Experimental |
+| **Java Interop** | Full support | Limited |
+| **Java Agent** | Supported | Not supported |
+| **Dependencies** | OpenTelemetry Java | Pure Scala |
+| **Ecosystem** | Java instrumentation | Scala-native |
+| **Binary Size** | Larger | Smaller |
+| **Performance** | Highly optimized | Good |
+
+## Getting Started with SDK
+
+For detailed documentation on using the SDK backend, visit:
+
+<CardGroup cols={2}>
+  <Card 
+    title="SDK Overview" 
+    icon="rocket" 
+    href="https://typelevel.org/otel4s-sdk/sdk/overview.html"
+  >
+    Installation and basic usage
+  </Card>
+  
+  <Card 
+    title="SDK Configuration" 
+    icon="gear" 
+    href="https://typelevel.org/otel4s-sdk/sdk/configuration.html"
+  >
+    Configure exporters and processors
+  </Card>
+  
+  <Card 
+    title="Tracing" 
+    icon="route" 
+    href="https://typelevel.org/otel4s-sdk/sdk/tracing.html"
+  >
+    Implement distributed tracing
+  </Card>
+  
+  <Card 
+    title="Metrics" 
+    icon="chart-line" 
+    href="https://typelevel.org/otel4s-sdk/sdk/metrics.html"
+  >
+    Collect and export metrics
+  </Card>
+</CardGroup>
+
+## Platform-Specific Guides
+
+### Scala Native
+
+The SDK enables OpenTelemetry for native executables:
+
+- Minimal runtime overhead
+- Fast startup times
+- Small binary size
+- Suitable for CLI tools and microservices
+
+### Scala.js
+
+Run OpenTelemetry in the browser or Node.js:
+
+- Frontend observability
+- Full-stack tracing
+- Browser performance monitoring
+- Node.js backend services
+
+## Community and Support
+
+The SDK backend is actively developed by the Typelevel community:
+
+- [GitHub Repository](https://github.com/typelevel/otel4s-sdk)
+- [Documentation](https://typelevel.org/otel4s-sdk/)
+- [Discord](https://discord.gg/typelevel) - #otel4s channel
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card 
+    title="Visit SDK Documentation" 
+    icon="arrow-right" 
+    href="https://typelevel.org/otel4s-sdk/sdk/overview.html"
+  >
+    Explore the full SDK documentation
+  </Card>
+  
+  <Card 
+    title="OTel Java Backend" 
+    icon="java" 
+    href="/backends/oteljava/overview"
+  >
+    Learn about the JVM-focused backend
+  </Card>
+</CardGroup>

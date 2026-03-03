@@ -1,0 +1,341 @@
+---
+title: JVM Runtime Metrics
+description: Collect JVM runtime metrics using OpenTelemetry instrumentation libraries
+---
+
+Collect JVM runtime metrics such as memory usage, garbage collection, thread count, and more using OpenTelemetry's runtime telemetry modules.
+
+See the [JVM Metrics Semantic Conventions](https://opentelemetry.io/docs/specs/semconv/runtime/jvm-metrics) for details on the metrics collected.
+
+## Java 8 and Newer
+
+The OpenTelemetry [runtime-telemetry-java8](https://github.com/open-telemetry/opentelemetry-java-instrumentation/tree/main/instrumentation/runtime-telemetry/runtime-telemetry-java8/library) module provides JVM runtime metrics for Java 8 and newer using JMX.
+
+### Installation
+
+<CodeGroup>
+```scala sbt
+libraryDependencies ++= Seq(
+  "org.typelevel" %% "otel4s-oteljava" % "@VERSION@", // <1>
+  "io.opentelemetry.instrumentation" % "opentelemetry-runtime-telemetry-java8" % "@OPEN_TELEMETRY_INSTRUMENTATION_ALPHA_VERSION@" // <2>
+)
+```
+
+```scala scala-cli
+//> using dep "org.typelevel::otel4s-oteljava:@VERSION@" // <1>
+//> using dep "io.opentelemetry.instrumentation:opentelemetry-runtime-telemetry-java8:@OPEN_TELEMETRY_INSTRUMENTATION_ALPHA_VERSION@" // <2>
+```
+</CodeGroup>
+
+1. Add the `otel4s-oteljava` library
+2. Add the OpenTelemetry runtime metrics library
+
+### Registration
+
+Register the runtime metrics producers manually:
+
+```scala
+import cats.effect.{IO, IOApp, Resource, Sync}
+import cats.syntax.flatMap._
+import cats.syntax.functor._
+import io.opentelemetry.api.{OpenTelemetry => JOpenTelemetry}
+import io.opentelemetry.instrumentation.runtimemetrics.java8._
+import org.typelevel.otel4s.oteljava.OtelJava
+
+object Service extends IOApp.Simple {
+  
+  def run: IO[Unit] =
+    OtelJava
+      .autoConfigured[IO]()
+      .flatTap(otel4s => registerRuntimeMetrics(otel4s.underlying))
+      .use { otel4s =>
+        // Your application logic
+        ???
+      }
+  
+  private def registerRuntimeMetrics[F[_]: Sync](
+      openTelemetry: JOpenTelemetry
+  ): Resource[F, Unit] = {
+    val acquire = Sync[F].delay(RuntimeMetrics.create(openTelemetry))
+  
+    Resource.fromAutoCloseable(acquire).void
+  }
+}
+```
+
+### Metrics Collected
+
+The Java 8 module collects these metrics:
+
+| Metric | Description | Unit |
+|--------|-------------|------|
+| `process.runtime.jvm.memory.usage` | Memory usage by pool | bytes |
+| `process.runtime.jvm.memory.committed` | Committed memory by pool | bytes |
+| `process.runtime.jvm.memory.limit` | Maximum memory by pool | bytes |
+| `process.runtime.jvm.memory.usage_after_last_gc` | Memory after last GC | bytes |
+| `process.runtime.jvm.gc.duration` | GC duration | ms |
+| `process.runtime.jvm.threads.count` | Thread count | threads |
+| `process.runtime.jvm.classes.loaded` | Loaded classes | classes |
+| `process.runtime.jvm.classes.unloaded` | Unloaded classes | classes |
+| `process.runtime.jvm.cpu.utilization` | CPU utilization | 1 |
+
+## Java 17 and Newer
+
+The OpenTelemetry [runtime-telemetry-java17](https://github.com/open-telemetry/opentelemetry-java-instrumentation/tree/main/instrumentation/runtime-telemetry/runtime-telemetry-java17/library) module provides enhanced JVM runtime metrics for Java 17 and newer using both JMX and JFR (Java Flight Recorder).
+
+### Installation
+
+<CodeGroup>
+```scala sbt
+libraryDependencies ++= Seq(
+  "org.typelevel" %% "otel4s-oteljava" % "@VERSION@", // <1>
+  "io.opentelemetry.instrumentation" % "opentelemetry-runtime-telemetry-java17" % "@OPEN_TELEMETRY_INSTRUMENTATION_ALPHA_VERSION@" // <2>
+)
+```
+
+```scala scala-cli
+//> using dep "org.typelevel::otel4s-oteljava:@VERSION@" // <1>
+//> using dep "io.opentelemetry.instrumentation:opentelemetry-runtime-telemetry-java17:@OPEN_TELEMETRY_INSTRUMENTATION_ALPHA_VERSION@" // <2>
+```
+</CodeGroup>
+
+1. Add the `otel4s-oteljava` library
+2. Add the OpenTelemetry runtime metrics library
+
+### Registration
+
+Register the runtime metrics producers:
+
+```scala
+import cats.effect.{IO, IOApp, Resource, Sync}
+import cats.syntax.flatMap._
+import cats.syntax.functor._
+import io.opentelemetry.api.{OpenTelemetry => JOpenTelemetry}
+import io.opentelemetry.instrumentation.runtimemetrics.java17._
+import org.typelevel.otel4s.oteljava.OtelJava
+
+object Service extends IOApp.Simple {
+  
+  def run: IO[Unit] = 
+    OtelJava
+      .autoConfigured[IO]()
+      .flatTap(otel4s => registerRuntimeMetrics(otel4s.underlying))
+      .use { otel4s =>
+        // Your application logic
+        ???
+      }
+
+  private def registerRuntimeMetrics[F[_]: Sync](
+      openTelemetry: JOpenTelemetry
+  ): Resource[F, Unit] = {
+    val acquire = Sync[F].delay(RuntimeMetrics.create(openTelemetry))
+
+    Resource.fromAutoCloseable(acquire).void
+  }
+}
+```
+
+### Additional Metrics
+
+The Java 17 module collects all Java 8 metrics plus:
+
+| Metric | Description | Unit |
+|--------|-------------|------|
+| `process.runtime.jvm.memory.init` | Initial memory | bytes |
+| `process.runtime.jvm.system.cpu.utilization` | System CPU utilization | 1 |
+| `process.runtime.jvm.system.cpu.load_1m` | 1-minute load average | 1 |
+| `process.runtime.jvm.buffer.usage` | Buffer pool usage | bytes |
+| `process.runtime.jvm.buffer.limit` | Buffer pool limit | bytes |
+| `process.runtime.jvm.buffer.count` | Number of buffers | buffers |
+
+## Configuration Options
+
+### Custom Metric Intervals
+
+Control metric collection intervals through environment variables:
+
+```bash
+# Metric export interval (default: 60000ms)
+export OTEL_METRIC_EXPORT_INTERVAL=30000
+
+# Metric export timeout (default: 30000ms)
+export OTEL_METRIC_EXPORT_TIMEOUT=10000
+```
+
+### Selective Metric Collection
+
+Disable specific metric collectors if needed:
+
+```scala
+import io.opentelemetry.instrumentation.runtimemetrics.java8._
+
+val metrics = RuntimeMetrics.builder(openTelemetry)
+  .disableAllFeatures()
+  .enableMemoryPools()
+  .enableGarbageCollector()
+  .build()
+```
+
+## Usage Examples
+
+### Complete Application
+
+```scala
+import cats.effect.{IO, IOApp, Resource}
+import io.opentelemetry.api.{OpenTelemetry => JOpenTelemetry}
+import io.opentelemetry.instrumentation.runtimemetrics.java17._
+import org.typelevel.otel4s.oteljava.OtelJava
+import org.typelevel.otel4s.metrics.Meter
+import scala.concurrent.duration._
+
+object MetricsApp extends IOApp.Simple {
+  
+  def run: IO[Unit] = 
+    resources.use { case (otel4s, meter) =>
+      // Application will emit JVM metrics automatically
+      runApplication(meter)
+    }
+    
+  def resources: Resource[IO, (OtelJava[IO], Meter[IO])] =
+    for {
+      otel4s <- OtelJava.autoConfigured[IO]()
+      _      <- registerJvmMetrics(otel4s.underlying)
+      meter  <- Resource.eval(otel4s.meterProvider.get("my-service"))
+    } yield (otel4s, meter)
+  
+  def registerJvmMetrics(
+    openTelemetry: JOpenTelemetry
+  ): Resource[IO, Unit] =
+    Resource.fromAutoCloseable(
+      IO.delay(RuntimeMetrics.create(openTelemetry))
+    ).void
+    
+  def runApplication(meter: Meter[IO]): IO[Unit] =
+    IO.sleep(5.minutes) // Keep running to observe metrics
+}
+```
+
+### With Custom Application Metrics
+
+```scala
+import cats.effect.{IO, IOApp, Resource}
+import cats.syntax.flatMap._
+import io.opentelemetry.api.{OpenTelemetry => JOpenTelemetry}
+import io.opentelemetry.instrumentation.runtimemetrics.java17._
+import org.typelevel.otel4s.oteljava.OtelJava
+import org.typelevel.otel4s.metrics.{Counter, Meter}
+
+object CombinedMetrics extends IOApp.Simple {
+  
+  def run: IO[Unit] =
+    OtelJava.autoConfigured[IO]()
+      .flatTap(otel4s => registerJvmMetrics(otel4s.underlying))
+      .use { otel4s =>
+        otel4s.meterProvider.get("my-service").flatMap { meter =>
+          setupMetrics(meter).flatMap { metrics =>
+            applicationLogic(metrics)
+          }
+        }
+      }
+  
+  def registerJvmMetrics(
+    openTelemetry: JOpenTelemetry
+  ): Resource[IO, Unit] =
+    Resource.fromAutoCloseable(
+      IO.delay(RuntimeMetrics.create(openTelemetry))
+    ).void
+    
+  def setupMetrics(meter: Meter[IO]): IO[AppMetrics] =
+    for {
+      requests <- meter.counter("http.requests").create
+      errors   <- meter.counter("http.errors").create
+    } yield AppMetrics(requests, errors)
+    
+  case class AppMetrics(
+    requests: Counter[IO, Long],
+    errors: Counter[IO, Long]
+  )
+  
+  def applicationLogic(metrics: AppMetrics): IO[Unit] = ???
+}
+```
+
+## Monitoring Dashboards
+
+### Common Metrics to Watch
+
+1. **Memory Pressure**
+   - `process.runtime.jvm.memory.usage` (heap)
+   - `process.runtime.jvm.memory.usage_after_last_gc`
+
+2. **GC Performance**
+   - `process.runtime.jvm.gc.duration`
+   - GC frequency and pause times
+
+3. **Thread Health**
+   - `process.runtime.jvm.threads.count`
+   - Thread growth over time
+
+4. **CPU Usage**
+   - `process.runtime.jvm.cpu.utilization`
+   - `process.runtime.jvm.system.cpu.utilization` (Java 17+)
+
+## Best Practices
+
+<AccordionGroup>
+  <Accordion title="Use Java 17 metrics when possible">
+    The Java 17 module provides more detailed metrics through JFR integration. If your application runs on Java 17 or newer, prefer the `runtime-telemetry-java17` module.
+  </Accordion>
+  
+  <Accordion title="Monitor memory after GC">
+    `process.runtime.jvm.memory.usage_after_last_gc` is a better indicator of actual memory pressure than raw usage, as it shows memory that cannot be reclaimed.
+  </Accordion>
+  
+  <Accordion title="Set appropriate export intervals">
+    JVM metrics change frequently. Consider using a shorter export interval (e.g., 30 seconds) for better granularity in production.
+  </Accordion>
+  
+  <Accordion title="Correlate with application metrics">
+    Combine JVM metrics with your application-specific metrics to understand the relationship between resource usage and application behavior.
+  </Accordion>
+</AccordionGroup>
+
+## Troubleshooting
+
+### Metrics Not Appearing
+
+Ensure the runtime metrics are properly registered:
+
+```scala
+// Check that registration happens before application logic
+OtelJava
+  .autoConfigured[IO]()
+  .flatTap(otel4s => registerRuntimeMetrics(otel4s.underlying)) // Register first
+  .use { otel4s =>
+    // Application logic
+  }
+```
+
+### High Memory Usage
+
+Metric collection itself has minimal overhead, but if you suspect issues:
+
+```scala
+// Disable specific collectors
+val metrics = RuntimeMetrics.builder(openTelemetry)
+  .disableMemoryPools()  // Disable if not needed
+  .enableGarbageCollector()
+  .enableThreads()
+  .build()
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Metrics Guide" icon="chart-line" href="/instrumentation/metrics">
+    Learn how to create custom metrics
+  </Card>
+  <Card title="Configuration" icon="gear" href="configuration">
+    Configure metric export settings
+  </Card>
+</CardGroup>
