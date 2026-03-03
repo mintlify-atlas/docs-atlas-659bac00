@@ -1,0 +1,150 @@
+{
+  "projectType": "sdk-library",
+  "projectName": "otel4s",
+  "projectDescription": "An OpenTelemetry library for Scala based on Cats-Effect with metrics, tracing, and cross-platform support",
+  "theme": "palm",
+  "primaryColor": "#FF6169",
+  "lightColor": "#FF8A90",
+  "darkColor": "#E5545A",
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Documentation",
+        "groups": [
+          {
+            "group": "Get Started",
+            "pages": [
+              "introduction",
+              "quickstart",
+              "modules-structure"
+            ]
+          },
+          {
+            "group": "Core Concepts",
+            "pages": [
+              "concepts/tracing",
+              "concepts/metrics",
+              "concepts/logs",
+              "concepts/context-propagation"
+            ]
+          },
+          {
+            "group": "Backends",
+            "pages": [
+              "backends/oteljava/overview",
+              "backends/oteljava/configuration",
+              "backends/oteljava/context-propagation",
+              "backends/oteljava/java-interop",
+              "backends/oteljava/jvm-runtime-metrics",
+              "backends/oteljava/agent",
+              "backends/sdk/overview"
+            ]
+          },
+          {
+            "group": "Instrumentation",
+            "pages": [
+              "instrumentation/tracing-guide",
+              "instrumentation/metrics-guide",
+              "instrumentation/logs-guide",
+              "instrumentation/baggage",
+              "instrumentation/semantic-conventions",
+              "instrumentation/cross-service-propagation",
+              "instrumentation/cats-effect-runtime"
+            ]
+          },
+          {
+            "group": "Testing",
+            "pages": [
+              "testing/testkit-oteljava",
+              "testing/testkit-sdk"
+            ]
+          },
+          {
+            "group": "Examples",
+            "pages": [
+              "examples/jaeger-docker",
+              "examples/honeycomb",
+              "examples/grafana",
+              "examples/dash0"
+            ]
+          },
+          {
+            "group": "Ecosystem",
+            "pages": [
+              "ecosystem"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "API Reference",
+        "groups": [
+          {
+            "group": "Core API",
+            "pages": [
+              "api/tracer",
+              "api/meter",
+              "api/span",
+              "api/attributes",
+              "api/context"
+            ]
+          },
+          {
+            "group": "Tracing",
+            "pages": [
+              "api/tracing/tracer-provider",
+              "api/tracing/span-builder",
+              "api/tracing/span-context"
+            ]
+          },
+          {
+            "group": "Metrics",
+            "pages": [
+              "api/metrics/meter-provider",
+              "api/metrics/counter",
+              "api/metrics/histogram",
+              "api/metrics/up-down-counter",
+              "api/metrics/gauge",
+              "api/metrics/observable"
+            ]
+          },
+          {
+            "group": "Propagation",
+            "pages": [
+              "api/propagation/context-propagators",
+              "api/propagation/text-map-propagator",
+              "api/propagation/baggage"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "keyFeatures": [
+    "Idiomatic Scala API for OpenTelemetry with Cats Effect",
+    "Modular architecture supporting metrics, tracing, and logging",
+    "Cross-platform support for JVM, Scala.js, and Scala Native",
+    "Near-zero overhead when telemetry is disabled",
+    "Multiple backends: OpenTelemetry Java SDK and pure Scala SDK",
+    "Comprehensive testkit for validating telemetry behavior"
+  ],
+  "publicApiSurface": [
+    "org.typelevel.otel4s.Otel4s",
+    "org.typelevel.otel4s.trace.Tracer",
+    "org.typelevel.otel4s.trace.TracerProvider",
+    "org.typelevel.otel4s.trace.Span",
+    "org.typelevel.otel4s.trace.SpanBuilder",
+    "org.typelevel.otel4s.metrics.Meter",
+    "org.typelevel.otel4s.metrics.MeterProvider",
+    "org.typelevel.otel4s.metrics.Counter",
+    "org.typelevel.otel4s.metrics.Histogram",
+    "org.typelevel.otel4s.metrics.UpDownCounter",
+    "org.typelevel.otel4s.metrics.Gauge",
+    "org.typelevel.otel4s.Attributes",
+    "org.typelevel.otel4s.AttributeKey",
+    "org.typelevel.otel4s.context.propagation.ContextPropagators",
+    "org.typelevel.otel4s.context.propagation.TextMapPropagator",
+    "org.typelevel.otel4s.baggage.Baggage",
+    "org.typelevel.otel4s.oteljava.OtelJava"
+  ]
+}
